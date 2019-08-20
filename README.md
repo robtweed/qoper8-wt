@@ -1,4 +1,4 @@
-# qoper8-wt: High-performance Node.js Message Queue Using Worker Threads
+# qoper8-wt: Node.js Worker Thread Pool Management System
 
 Rob Tweed <rtweed@mgateway.com>  
 20 August 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)  
