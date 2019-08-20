@@ -1,6 +1,6 @@
 {
   "name": "qoper8-wt",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "config": {
     "date": "20 August 2019"
   },
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/robtweed/ewd-qoper8.git"
+    "url": "git+https://github.com/robtweed/qoper8-wt.git"
   },
   "author": "Rob Tweed, M/Gateway Developments Ltd",
   "license": "Apache-2.0",
