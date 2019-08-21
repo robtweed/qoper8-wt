@@ -440,7 +440,7 @@ This is where you define your logic for handling all messages (with the exceptio
 *qoper8-wt*'s own control messages)
 
 
-### Example Worker Module
+### Example Worker Thread Message Handler Module
 
 Here's a simple example of a worker module:
 
@@ -732,6 +732,427 @@ Here's the *on('message')* handler in the Worker Handler Module for this example
 Notice the way this is sending messages using both the *send()* and *finished()* functions. 
 You'll see in the console log that both are intercepted by the *handleMessage()* function's 
 callback function.
+
+
+## Master Process Events, Methods and Properties
+
+The Master Process *qoper8* object is instantiated as follows:
+
+        var qoper8_wt = require('qoper8-wt');
+        var qoper8 = new qoper8_wt.masterProcess();
+
+Event Handlers, properties and methods that you can use are as follows:
+
+### Master process Event Handlers
+
+- **start**: The Master Process has started but not yet created the Worker Thread bootstrap Module.
+This is a good event to use for changing configuration settings, augmenting the *qoper8* object etc
+
+
+  - arguments: none
+
+  - example:
+
+        qoper8.on('start', function() {
+          this.toggleLogging();
+          this.worker.poolSize = 1;
+          this.worker.module = process.cwd() + '/examples/test-workerModule2';
+        });
+
+
+- **started**: *qoper8-wt* is fully ready for use.  Define your application's behaviour here, adding
+messages to the queue.
+
+  - arguments: none
+
+  - example:
+
+        qoper8.on('started', function() {
+          var messageObj = {
+            type: 'testMessage',
+            hello: 'world'
+          };
+
+          this.handleMessage(messageObj, function(response) {
+            console.log('** Master Processes received message: ' + i + ': ' + JSON.stringify(response, null, 2));
+          });
+        }
+      });
+
+
+
+- **stop**: The Master Process has shut down all previously-running Worker Threads and is about to
+terminate.  Use this event to cleanly release any resources from the Master Process
+
+  - arguments: none
+ 
+  - example:
+ 
+        qoper8.on('stop', function() {
+          console.log('Master process is about to stop')
+        });
+
+
+- **queued**: A message object has been added to the queue
+
+  - arguments:
+    - **messageObj**: the message object that has been added to the queue
+    - **queue_length**: the current length of the queue
+
+  - example:
+
+        qoper8.on('queued', function(messageObj, queue_length) {
+          console.log('Message added to queue: ' + JSON.stringify(messageObj));
+          console.log('Current queue length: ' + queue_length);
+        });
+
+
+- **beforeDispatch**: A queued message is about to be sent to a Worker Thread
+
+  - arguments:
+    - **messageObj**: the message object that is about to be sent to the Worker Thread
+    - **threadId**: the identifier of the Worker Thead to which the message will be sent
+
+  - example:
+
+        qoper8.on('beforeDispatch', function(messageObj, threadId) {
+          console.log('About to send message to ' + threadId + ': ' + JSON.stringify(messageObj));
+        });
+
+
+- **workerStarted**: A Worker Thread has been started but not yet processed any messages
+
+  - arguments:
+    - **threadId**: the identifier of the Worker Thead that has been started
+
+  - example:
+
+        qoper8.on('workerStarted', function(threadId) {
+          console.log('Worker Thread ' + threadId + ' has started');
+        });
+
+
+- **response**: A response message has been received from a Worker Thread
+
+  - arguments:
+    - **responseObj**: the response object returned from the Worker Thread
+    - **threadId**: the identifier of the Worker Thead that returned the message
+
+  - example:
+
+        qoper8.on('workerStarted', function(threadId) {
+          console.log('Worker Thread ' + threadId + ' has started');
+        });
+
+
+### Master Process Methods
+
+- **addToQueue:** Add a message object to the queue
+
+  - arguments:
+    - **messageObj**: the message object to be added to the queue
+
+  - example:
+
+        qoper8.addToQueue({
+          type: 'testMessage', // all queued messages should include a type property
+          foo: 'bar'
+        });
+
+
+- **getWorkerThreadIds:** returns an array of the Thread Identifiers of all currently running Worker
+Threads
+
+  - arguments: none
+
+  - example:
+
+        console.log('Current threads: ' + qoper8.getWorkerThreadIds());
+
+
+- **handleMessage:** Add a message to the queue and handle response(s) via callback
+
+  - arguments:
+    - **messageObj**: the message object to be added to the queue
+    - **callback**: function that fires on receipt of any response from Worker Thread that handled this
+message.  The callback function's argument is the response object received from the Worker Thread
+
+  - example:
+
+        var messageObj = {
+          type: 'testMessage1',
+          hello: 'world'
+        };
+        qoper8.handleMessage(messageObj, function(response) {
+          console.log('** Master Processes received message: ' + JSON.stringify(response, null, 2));
+        });
+
+
+- **handleStats:** Obtain usage and resource utilisation statistics for Master Process
+and Worker Threads
+
+  - arguments:
+    - **callback**: Fires on completion of the statistics gathering process, returning
+and object that contains the statistics 
+
+  - example:
+
+        qoper8.handleStats(function(statsObj) {
+          console.log('utilisation statistics: ' + JSON.stringify(statsObj));
+        });
+
+The Statistics Object will typically look like this (hopefully self-explanatory):
+
+        {
+          "master": {
+            "pid": 7331,
+            "memory": {
+              "rss": "35.10",
+              "heapTotal": "4.02",
+              "heapUsed": "1.93"
+            },
+            "uptime": "0 days 0:00:05",
+            "queueLength": 0,
+            "workerThreads": [
+              "1",
+              "2"
+            ]
+          },
+          "worker": [
+            {
+              "threadId": 1,
+              "uptime": "0 days 0:00:04",
+              "noOfMessages": 8,
+              "memory": {
+                "rss": "35.10",
+                "heapTotal": "3.77",
+                "heapUsed": "1.62"
+              },
+              "available": true
+            },
+            {
+              "threadId": 2,
+              "uptime": "0 days 0:00:04",
+              "noOfMessages": 3,
+              "memory": {
+                "rss": "35.10",
+                "heapTotal": "3.77",
+                "heapUsed": "1.61"
+              },
+              "available": true
+            }
+          ]
+        }
+
+
+- **setWorkerIdleLimit:** set the number of ms that a Worker Thread can remain idle until it will be
+automatically shut down (default = 3600000 [1 hour])
+
+  - arguments: idle time limit in milliseconds
+
+  - example:
+
+        qoper8.setWorkerIdleLimit(1800000);
+
+
+
+- **setWorkerPoolSize:** set the maximum number of Worker Threads that can be running consecutively
+
+  - arguments: maxNoOfThreads
+
+  - example:
+
+        qoper8.setWorkerPoolSize(8);  // Sets a Worker Pool Size of 8
+
+
+- **stop:** Instigate an orderly shutdown of all Worker Threads followed by the Master Process.  The
+Master Process will not stop until all Worker Threads have signalled that they have been shut down.
+
+  - arguments: none
+
+  - example:
+
+        qoper8.stop();
+
+
+- **stopWorker:** Instigate an orderly shutdown of a specified Worker Thread
+
+  - arguments: threadId
+
+  - example:
+
+        qoper8.stopWorker(2);  // Stop the Worker Thread whose Thread Id is 2
+
+
+- **toggleLogging:** Toggles logging of *qoper8-wt* activity to the console.  Logging is enabled
+by default
+
+  - arguments: none
+
+  - example:
+
+        var loggingStatus = qoper8.toggleLogging();  // returns true | false
+
+
+- **upTime:** returns the length of time (in days + hh:mm:ss) that the Master Process has been running
+
+  - arguments: none
+
+  - example:
+
+        var uptime = qoper8.upTime();  // eg 0 days 0:00:04
+
+
+- **version:** returns the *qoper8-wt* Build/Version details
+
+  - arguments: none
+
+  - example:
+
+        var version = qoper8.version();  // eg "qoper8-wt Build 4.0.1; 20 August 2019"
+
+
+
+### Master Process Properties
+
+- **checkWorkerPoolDelay**: No of milliseconds between each check made by the Master Process to determine
+whether any Worker Threads should be stopped due to inactivity.  Default is 300000ms (ie 5 minutes)
+
+- **log**: Set to *true* to enable activity logging to the console, *false* to disable logging.
+Logging is enabled by default.
+
+- **shutdownDelay**: No of milliseconds that the Master Process will wait for an "exit" acknowledgement
+message from a Worker Thread that it has instructed to stop cleanly.  If the "exit" response has
+not been received within this time limit, the Master Process will force the Worker 
+Thread to stop. Default = 20000 (ie 20 sec)
+
+- **worker.module**: specifies the path of your Worker Thread Handler Module which will be loaded into
+each Worker Thread when started.
+
+
+Master Process properties are normally set within the Master Process *start* event handler, 
+where they are accessed as properties of *this*, eg:
+
+        qoper8.on('start', function() {
+          this.checkWorkerPoolDelay = 600000;
+          this.log = false;
+          this.worker.module = '/examples/example-worker-module';
+
+          this.setWorkerPoolSize(8);  // Worker Process methods are also accessible via this
+
+        });
+
+
+
+## Worker Thread Events and Properties
+
+The Worker Thread *qoper8* object is instantiated within a Worker Thread whenever the
+Worker Thread is started by the Master Process.
+
+You can access its events, methods and properties from within your Worker Thread Handler Module.
+They are available via the *this* object.
+
+Event Handlers and properties that you can use are as follows:
+
+
+### Worker Thread Event Handlers
+
+- **start**: The Worker Thread has started and is ready for use, but hasn't yet signalled
+to the Master Process that it is ready for messages to be sent to it. 
+This is therefore a good event to use for 
+loading additional Node.js modules, attaching databases, making external connections, 
+augmenting the *this* object for your own purposes, etc.
+
+
+  - arguments: none
+
+  - example:
+
+        this.on('start', function() {
+          if (this.log) console.log('Worker Thread ' + this.threadId + ' starting...');
+        });
+
+
+- **stop**: The Worker Thread is about to stop. This is a good event to use for 
+ cleanly releasing resources, eg detaching databases, removing external connections, etc.
+
+
+  - arguments: none
+
+  - example:
+
+        this.on('stop', function() {
+          if (this.log) console.log('Worker Thread ' + this.threadId + ' stopping...');
+        });
+
+
+- **message**: The Worker Thread has received a message.  You can now perform whatever
+processing of the message object you wish.  Your logic must always eventually terminate
+using a call of the *finished* method to make sure that the Worker Thread is released
+back to the available pool, ready for handling another message.
+
+
+  - arguments:
+
+    - **messageObj**: the message object to be added to the queue
+    - **send**: function that will return a response object back to the Master Process, but leaving
+the Worker Thread unavailable
+    - **finished**: function that will return a response object back to the Master Process, and 
+instructs the Master Process to release the Worker Thread back to the available pool
+
+
+  - example:
+
+        this.on('message', function(messageObj, send, finished) {
+
+          send({
+            info: 'intermediate message',
+            foo: 'bar'
+          });
+
+          finished({
+            time: new Date().toString()
+          });
+
+        });
+
+
+- **unexpectedError**: A processing error of some kind has occurred in the Worker Thread.  *qoper8-wt*
+will shut it down and report the error to the console log, but before it does so, it will emit this
+event, allowing you to cleanly release any resources from the Worker Thread.
+
+
+  - arguments: none
+
+  - example:
+
+        this.on('unexpectedError', function() {
+          if (this.log) console.log('Worker Thread ' + this.threadId + ' has had a problem!');
+        });
+
+
+### Worker Thread Methods
+
+- **dontLog**: Allows you to define message *type* property values that are not to be logged to the
+console.  For example, you may not want to see sensitive values such as passwords appear in the
+console log.  Simply add the message types that handle such sensitive values to this array.
+
+  - arguments:
+
+    - types: an array of message type values to be omitted from the console log
+
+  - example:
+
+        this.on('start', function() {
+          this.dontLog(['login', 'getUserData']);
+        });
+
+
+### Worker Thread Properties
+
+- **this.threadId**: The Thread Id for the Worker Thread
+
+
 
 
 ## Benchmark Test

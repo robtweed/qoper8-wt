@@ -59,6 +59,9 @@ setTimeout(function() {
   for (threadId in q.worker.process) {
     console.log('Thread ' + threadId + ': ' + q.worker.process[threadId].totalRequests);
   }
+
+  q.getAllWorkerStats();
+
   q.getWorkerAvailability(function(available) {
     console.log('Worker availability: ' + JSON.stringify(available));
   });

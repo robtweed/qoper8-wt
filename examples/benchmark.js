@@ -24,7 +24,7 @@
  |  limitations under the License.                                          |
  ----------------------------------------------------------------------------
 
-  20 August 2019
+  21 August 2019
 
 */
 
@@ -98,7 +98,7 @@ q.on('response', function(responseObj, threadId) {
       console.log(responseNo + ' messages: ' + elapsed + ' sec');
       console.log('Processing rate: ' + rate + ' message/sec');
       for (var pid in this.worker.process) {
-        console.log('Worker Thread ' + threadId + ': ' + this.worker.process[pid].totalRequests + ' requests handled');
+        console.log('Worker Thread ' + pid + ': ' + this.worker.process[pid].totalRequests + ' requests handled');
       }
       console.log('');
       console.log('===========================');
