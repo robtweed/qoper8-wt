@@ -1,8 +1,8 @@
 {
   "name": "qoper8-wt",
-  "version": "4.0.4",
+  "version": "4.0.5",
   "config": {
-    "date": "9 July 2020"
+    "date": "14 July 2020"
   },
   "description": "Worker Thread Pool Management Utility for Node.js",
   "main": "index.js",

@@ -1182,7 +1182,7 @@ has completed.
 
 To run the benchmark:
 
-        node node_modules/qoper8-wt/lib/tests/benchmark [[worker thread pool size] [total no of messages] [no of messages/batch] [pause between each batch (ms)]
+        node node_modules/qoper8-wt/examples/benchmark [[worker thread pool size] [total no of messages] [no of messages/batch] [pause between each batch (ms)]
 
 
 The default values, if not specified as command line parameters are:
@@ -1205,7 +1205,7 @@ which messages are consumed by *qoper8-wt*.
 Here's some examples of how to run the benchmark:
 
 
-        node node_modules/ewd-qoper8/lib/tests/benchmark
+        node node_modules/qoper8-wt/examples/benchmark
 
 This uses:
 - Worker Thread pool size: 1
@@ -1214,7 +1214,7 @@ This uses:
 - pause between each batch: 51ms
 
 
-        node node_modules/ewd-qoper8/lib/tests/benchmark 2
+        node node_modules/qoper8-wt/examples/benchmark 2
 
 This uses
 
@@ -1224,7 +1224,7 @@ This uses
 - pause between each batch: 51ms
 
 
-        node node_modules/ewd-qoper8/lib/tests/benchmark 1 10000
+        node node_modules/qoper8-wt/examples/benchmark 1 10000
 
 
 This uses:
@@ -1234,7 +1234,7 @@ This uses:
 - pause between each batch: 51ms
 
 
-        node node_modules/ewd-qoper8/lib/tests/benchmark 2 5000 100
+        node node_modules/qoper8-wt/examples/benchmark 2 5000 100
 
 
 This uses:
@@ -1244,7 +1244,7 @@ This uses:
 - pause between each batch: 51ms
 
 
-        node node_modules/ewd-qoper8/lib/tests/benchmark 6 100000 1000 102
+        node node_modules/qoper8-wt/examples/benchmark 6 100000 1000 102
 
 
 This uses:
@@ -1259,7 +1259,7 @@ Here are maximum steady-state examples using a Raspberry Pi 4 (4Mb RAM):
 
 ### Worker Thread Pool Size: 1
 
-        node benchmark 1 100000 500 52
+        node node_modules/qoper8-wt/examples/benchmark 1 100000 500 52
 
 Throughput: 9,472 messages/sec
 
@@ -1267,7 +1267,7 @@ Throughput: 9,472 messages/sec
 
 ### Worker Thread Pool Size: 2
 
-        node benchmark 2 100000 500 26
+        node node_modules/qoper8-wt/examples/benchmark 2 100000 500 26
 
 Throughput: 18,698 messages/sec
 
@@ -1275,56 +1275,56 @@ Throughput: 18,698 messages/sec
 
 ### Worker Thread Pool Size: 3
 
-        node benchmark 3 100000 500 25
+        node node_modules/qoper8-wt/examples/benchmark 3 100000 500 25
 
 Throughput: 19,113 messages/sec
 
  
 ### Worker Thread Pool Size: 4
 
-        node benchmark 4 1000000 1000 46
+        node node_modules/qoper8-wt/examples/benchmark 4 1000000 1000 46
 
 Throughput: 20,681 messages/sec
 
 
 ### Worker Thread Pool Size: 5
 
-        node benchmark 5 1000000 2000 92
+        node node_modules/qoper8-wt/examples/benchmark 5 1000000 2000 92
 
 Throughput: 20,802 messages/sec
 
 
 ### Worker Thread Pool Size: 6
 
-        node benchmark 6 1000000 2000 91
+        node node_modules/qoper8-wt/examples/benchmark 6 1000000 2000 91
 
 Throughput: 20,919 messages/sec
 
 
 ### Worker Thread Pool Size: 7
 
-        node benchmark 7 1000000 2000 90
+        node node_modules/qoper8-wt/examples/benchmark 7 1000000 2000 90
 
 Throughput: 21,103 messages/sec
 
 
 ### Worker Thread Pool Size: 8
 
-        node benchmark 8 1000000 2000 89
+        node node_modules/qoper8-wt/examples/benchmark 8 1000000 2000 89
 
 Throughput: 21,218 messages/sec
 
 
 ### Worker Thread Pool Size: 9
 
-        node benchmark 9 1000000 2000 90
+        node node_modules/qoper8-wt/examples/benchmark 9 1000000 2000 90
 
 Throughput: 21,085 messages/sec
 
 
 ### Worker Thread Pool Size: 10
 
-        node benchmark 10 1000000 2000 91
+        node node_modules/qoper8-wt/examples/benchmark 10 1000000 2000 91
 
 Throughput: 20,694 messages/sec
 
