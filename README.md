@@ -16,7 +16,8 @@ Node.js applications.
 *QOper8-wt* allows you to define a pool of Worker Threads, to which messages that you create are automatically
 dispatched and handled.  *QOper8-wt* manages the Worker Thread pool for you automatically, bringing them into play and closing them down based on demand.  *QOper8-wt* allows you to determine how long a Worker Thread process will persist.
 
-*Note*: The *QOper8-wt* module closely follows the pattern and APIs of the browser-based *QOper8-ww* module for WebWorker pool management. 
+*Note*: The *QOper8-wt* module closely follows the pattern and APIs of the browser-based 
+[*QOper8-ww*](https://github.com/robtweed/QOper8) module for WebWorker pool management. 
 
 
 *QOper8-wt* is unique for several reasons:
