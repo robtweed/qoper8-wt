@@ -409,11 +409,10 @@ class QOper8 {
     }
 
     function getWorker() {
-      let worker;
       for (const [id, worker] of workers) {
         worker.id = id;
         if (isAvailable.get(+worker.id)) return worker;
-        q.log('worker ' + id + ' is not available');
+        //q.log('worker ' + id + ' is not available');
       }
       return false;
     }
@@ -447,7 +446,8 @@ class QOper8 {
           initialised = true;
         }
 
-        let dispRes = JSON.parse(JSON.stringify(res));
+        let dispRes = {...res};
+        //let dispRes = JSON.parse(JSON.stringify(res));
         delete dispRes.qoper8;
 
         q.emit('replyReceived', {

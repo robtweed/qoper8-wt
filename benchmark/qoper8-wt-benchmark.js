@@ -5,6 +5,7 @@ let benchmark = function(options) {
   let maxMessages = +options.maxMessages || 5000;
   let blockLength = +options.blockLength || 100;
   let delay = +options.delay || 200;
+  let maxQLength = +options.maxQLength || 20000;
 
   let fnText = `
     finished({
@@ -16,7 +17,7 @@ let benchmark = function(options) {
 
   let q = new QOper8({
     //logging: true,
-    maxQLength: 20000,
+    maxQLength: maxQLength,
     workerInactivityLimit: 2,
     handlersByMessageType: new Map([
       ['benchmark', {text: fnText}]
