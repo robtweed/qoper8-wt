@@ -1,1341 +1,787 @@
-# qoper8-wt: Node.js Worker Thread Pool Management System
-
+# QOper8-wt: Queue-based Node.js Worker Thread Pool Manager
+ 
 Rob Tweed <rtweed@mgateway.com>  
-20 August 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)  
+16 August 2022, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)  
 
 Twitter: @rtweed
 
 Google Group for discussions, support, advice etc: [http://groups.google.co.uk/group/enterprise-web-developer-community](http://groups.google.co.uk/group/enterprise-web-developer-community)
 
-## What is qoper8-wt?
 
-*qoper8-wt* is a generic, high-performance Node.js-based message queue and worker pool management
-module, using Worker Threads.
+## What is QOper8-wt?
 
-It provides you with:
+*QOper8-wt* is a Node.js/JavaScript Module that provides a simple yet powerful way to use and manage Worker Threads in your
+Node.js applications.
 
-- a memory-based queue within your main process onto which you can add JSON messages
-- a pool of persistent Worker Threads that run your message handler functions
-- a Worker Thread pool manager that will start up and shut down Worker Threads based on demand
-- a dispatcher that processes the queue whenever a message is added to it, and attempts to send the message to an available Worker Thread
+*QOper8-wt* allows you to define a pool of Worker Threads, to which messages that you create are automatically
+dispatched and handled.  *QOper8-wt* manages the Worker Thread pool for you automatically, bringing them into play and closing them down based on demand.  *QOper8-wt* allows you to determine how long a Worker Thread process will persist.
 
-It differs from most other Worker Thread pool management systems by preventing a Worker Thread
- from handling more than one message at a time.  This is by deliberate design to avoid the 
-concurrency issues that are normally associated with Node.js
+*Note*: The *QOper8-wt* module closely follows the pattern and APIs of the browser-based *QOper8-ww* module for WebWorker pool management. 
 
-You determine the maximum size of the Worker Thread pool.  If no free Worker Threads in your
-pool are available, messages will remain on the queue.  The queue is automatically processed whenever:
 
-- a new message is added to the queue
-- a Worker Thread completes its processing of a message and returns itself to the available pool
+*QOper8-wt* is unique for several reasons:
 
-The structure of messages is entirely up to you, but:
+- it works on a queue/dispatch architecture.  All you do as a developer is use a simple API to add a message to the *QOper8-wt* queue.  You then let *QOper8-wt* do the rest.
 
-- they are JavaScript objects, of any size and complexity
-- they cannot contain functions
-- they should always have a *type* property
+- each Worker Thread process only handles a single message request at a time.  There are therefore no concurrency issues to worry about within your Worker Thread handler method(s)
 
-How messages are processed within a Worker Thread is up to you.  
-You define a handler method/function for each message *type* you expect to be added to the queue.
+- messages contain a JSON payload and a type which you specify.  You can have and use as many types as you wish, but you must create a handler method for each message type.  *QOper8-wt* will load your message type handler methods dynamically and automatically into the Worker Thread that it allocates to handle the message.
 
-*qoper8-wt* is highly customisable.   For example, the Master process and/or Worker Threads can be 
-customised to connect to any database you wish, and *qoper8-wt* can be integrated with a 
-Node.js-based web-server module such as *Express*, and/or with a web-socket module such as *socket.io*.  
+*QOper8-wt* will automatically shut down Worker Threads if they have been inactive for a pre-defined length of time (20 minutes by default).
 
 
-## Installing *qoper8-wt*
+## Node.js Version Compatibility
 
-**NOTE:** *qoper8-wt* requires Node.js version 12 or later, because it uses the Worker Thread
-functionality.
+*QOper8-wt* is designed for use with Node.js version 18 and later.
 
 
-       npm install qoper8-wt
+## Installing
 
+        npm install QOper8-wt
 
+Then you can import the *QOper8* class:
 
-## Getting Started With qoper8-wt
+        import {QOper8} from 'QOper8-wt';
 
-*qoper8-wt* is pre-configured with a set of default methods that essentially invoke a "do nothing"ù
-action. You can therefore very simply test *qoper8-wt* by writing and running the following script
-file:
 
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
-        console.log(q.version() + ' running in process ' + process.pid);
-        q.start();
+## Starting/Configuring *QOper8-wt*
 
+You start and configure *QOper8-wt* by creating an instance of the *QOper8* class:
 
+      let qoper8 = new QOper8(options);
 
-(You'll find a copy of this in the */examples* sub-folder within the *qoper8-wt* module folder.
-Look for the file *test1.js*)
+*options* is an object that defines your particular configuration.  Its main properties are:
 
-This example will start the *qoper8-wt* Master process, with a Worker Thread pool size of 1. It will
-then sit waiting for messages to be added to the queue - which isn't going to happen in this script.
-When *qoper8-wt* starts, it does not actually start any Worker Threads. A Worker Thread is only
-started when:
+- *poolSize*: the maximum number of Worker Thread processes that *QOper8-wt* will start and run concurrently (Note that Worker Threads are started dynamically on demand.  If not specified, the poolSize will be 1: ie all messages will be handled by a single Worker Thread
 
-- a message is added to the queue; AND
-- no currently-running Worker Thread is available; AND
-- the maximum Worker Thread pool size has not yet been reached
+- *maxPoolSize*: It is possible to modify the poolSize of a running *QOper8-wt* system (see later), but you may want to set a cap on what is possible.  This *maxPoolSize* option allows you to do this.  If not specified, a value of 32 is used.
 
-So if you run the above script you should just see something like this:
+- *handlersByMessageType*: a JavaScript Map of each message type to its respective handler method module URL.  Message types can be any string value.  See later on how to use this Map.
 
-        pi@rpi4-0:~/qewd $ node examples/test1
+- *maxQueueLength*: in order to maximise performance, *QOper8-wt* makes use of a module that is specially designed for high-performance queues: [*double-ended-queue*](https://www.npmjs.com/package/double-ended-queue).  This needs to be initialised by specifying its maximum size.  If not specified, *QOper8-wt* will use a default value of 20,000, but you may want to reduce this if your expected activity allows, to further optimise performance.
 
-        qoper8-wt Build 4.0.0; 20 August 2019 running in process 21488
-        Worker Bootstrap Module file written to ./node_modules/qoper8-wt-worker.js
-        ========================================================
-        qoper8-wt is up and running.  Max worker pool size: 1
-        ========================================================
+- *logging*: if set to *true*, *QOper8-wt* will generate console.log messages for each of its critical processing steps within both the main process and every Worker Thread process.  This is useful for debugging during development.  If not specified, it is set to *false*.
 
+-*exitOnStop*: if set to *true* and if you invoke the *stop()* API (see later), QOper8-wt will invoke a *process.exit()* command.  By default, QOper8 will remain running even when stopped (although it will deactivate its queue when stopped).
 
-Notice the second line of output: *qoper8-wt* always automatically creates a file 
-containing the core Worker Thread logic from which it bootstraps itself. However, since the 
-test script doesn't add any messages to qoper8-wt's queue, no worker processes are created 
-and the Master Process will just sit waiting.
 
-To stop qoper8-wt, just press CTRL & C within the process console, or send a SIGINT message
-from another process, eg:
+You can optionally modify the parameters used by *QOper8-wt* for monitoring and shutting down inactive Worker Thread processes, by using the following *options* properties:
 
-        kill 21488
+- *workerInactivityCheckInterval*: how frequently (in seconds) a Worker Thread checks itself for inactivity.  If not specified, a value of 60 (seconds) is used
 
-Note: the number should be the process Id for the *qoper8-wt* Master Process.
+- *workerInactivityLimit*: the length of time (in minutes) a Worker Thread process can remain inactive until *QOper8-wt* shuts it down.  If not specified, the maximum inactivity duration is 20 minutes.
 
-In either case you should see something like the following:
 
-        ^C*** CTRL & C detected: shutting down gracefully...
-        No worker processes are running
-        Master process will now shut down
+For example:
 
-Alternatively, if you leave the script running, it will time-out and shut itself down
-automatically after 10 seconds, and you'll see:
+      let qoper8 = new QOper8({
+        poolSize: 2,
+        logging: true,
+        handlersByMessageType: new Map([
+         ['test', {module: './testHandler.mjs'}]
+        ]),
+        workerInactivityCheckInterval: 20,
+        workerInactivityLimit: 5
+      });
 
-        No worker processes are running
-        Master process will now shut down
 
-        pi@rpi4-0:~/qewd
+## Adding a Message to the *QOper8-wt* Queue
 
+The simplest technique is to use the *send* API.  This method creates a Promise, the resolution of which will be the response object returned from the assigned Worker Thread that handled the message.
 
-## Try Adding a Message to the *qoper8-wt* Queue
+For example, you can use async/await syntax:
 
-You use *qoper8-wt*'s *addToQueue()* method to add messages to the Queue. 
-Messages are simply JavaScript objects, but they **must** always have a *type* property defined. 
-The value of the *type* property is entirely up to you. Defining a type assists in message and 
-response handling. The built-in logging reports will assume your messages have a *type* property, 
-and your handler methods for processing messages are invoked by matching them to the *type* property.
+      let res = await qoper8.send(messageObject);
 
-So we could do the following test (see *test2.js* in the */examples* sub-folder):
+  where:
 
+  - *messageObject*: an object with the following properties:
 
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
+    - *type*: mandatory property specifying the message type.  The *type* value is a string that you determine, and must have a corresponding mapping in the *options.handlersByMessageType* Map that you used when configuring *QOper8-wt* (see above)
 
-        q.on('started', function() {
-          console.log(q.version() + ' running in process ' + process.pid);
+    - *data*: a sub-object containing your message payload.  The message payload content and structure is up to you.  Your associated message type handler method will, of course, be designed by you to expect and process this payload structure
 
-          var messageObj = {
-            type: 'testMessage1',
-            hello: 'world'
-          };
-          this.addToQueue(messageObj);
-        });
 
-        q.start();
+  - *res*: the response object returned from the Worker Thread process that handled the message.  The structure and contents of the *res* object will be determined by you within your message type handler module.
 
-        setTimeout(function() {
-          q.stop();
-        }, 10000);
+eg:
 
-
-
-Note: Any *qoper8-wt* activity should be defined within its *started* event handler. 
-In the example above you can see a message object being created and queued using *this.addToQueue()*
- within the *q.on('started')* handler.
-
-Running the above script should produce output similar to the following:
-
-        pi@rpi4-0:~/qewd $ node examples/test2
-        Worker Bootstrap Module file written to ./node_modules/qoper8-wt-worker.js
-        ========================================================
-        qoper8-wt is up and running.  Max worker pool size: 1
-        ========================================================
-        qoper8-wt Build 4.0.0; 20 August 2019 running in process 21650
-        no available workers
-        sent qoper8-start message to worker thread 1
-        loading Worker Thread Startup File
-        workerData = [null]
-        Tue, 20 Aug 2019 10:05:22 GMT; master process received response from worker thread 1: {"type":"workerThreadStarted","ok":1}
-        new worker thread 1 started and ready so process queue again
-        Tue, 20 Aug 2019 10:05:22 GMT; worker thread 1 received message: {"type":"testMessage1","hello":"world"}
-        Tue, 20 Aug 2019 10:05:22 GMT; master process received response from worker thread 1: {"type":"testMessage1","finished":true,"message":{"error":"No handler found for testMessage1 message"}}
-        Master process has finished processing response from worker thread 1 which is back in available pool
-        signalling worker 1 to stop
-        Tue, 20 Aug 2019 10:05:32 GMT; worker thread 1 received message: {"type":"qoper8-exit"}
-        worker thread 1 will now shut down
-        *** master received exit event from worker process 1
-        exit received from worker thread 1
-        No worker processes are running
-        Master process will now shut down
-        pi@rpi4-0:~/qewd $
-
-
-Let's examine this output to understand what happened.
-
-*qewd-wt* started up successfully:
-
-
-        Worker Bootstrap Module file written to ./node_modules/qoper8-wt-worker.js
-        ========================================================
-        qoper8-wt is up and running.  Max worker pool size: 1
-        ========================================================
-        qoper8-wt Build 4.0.0; 20 August 2019 running in process 21650
-
-
-The message was then created in the Master Process and added to the queue.  This caused the
-Master Process to start a Worker Thread, because it saw that there were no available Worker
-Threads already running and available.  The Worker Thread was initialised ready for use:
-
-
-        no available workers
-        sent qoper8-start message to worker thread 1
-        loading Worker Thread Startup File
-        workerData = [null]
-
-and reported back to the Master Process to inform it that it was ready for use:
-
-        Tue, 20 Aug 2019 10:05:22 GMT; master process received response from worker thread 1: {"type":"workerThreadStarted","ok":1}
-        new worker thread 1 started and ready so process queue again
-
-
-The Master Process then sent the queued message to the now-started Worker Thread:
-
-        Tue, 20 Aug 2019 10:05:22 GMT; worker thread 1 received message: {"type":"testMessage1","hello":"world"}
-
-
-We haven't defined any handler logic for any types of message, so an error was registered by the
-Worker Thread, processing flagged as finished in the Worker Thread, and the error 
-message object returned to the Master Process:
-
-        Tue, 20 Aug 2019 10:05:22 GMT; master process received response from worker thread 1: {"type":"testMessage1","finished":true,"message":{"error":"No handler found for testMessage1 message"}}
-
-The Master Process then returned the Worker Thread to the available pool, ready to handle another
-message:
-
-
-        Master process has finished processing response from worker thread 1 which is back in available pool
-
-**NOTE:** On completion of processing a message, the Worker Thread that was assigned to handle it
-is **NOT** shut down, but remains running and ready to handle another message without incurring
-the not insignificant time needed to start up.  That startup time is incurred just once when the
-Worker Thread is first started by the Master Process.
-
-
-In our example script, no further messages were queued and after 10 seconds, the Master Process was told to stop *qoper8-wt*.
-Before doing so, it sends a message to each running Worker Thread - this triggers and event that can be
-used within the Worker Threads to cleanly shut down any resources, external connections etc.
-
-Each Worker Thread reports its shutdown to the Master Process:
-
-
-        signalling worker 1 to stop
-        Tue, 20 Aug 2019 10:05:32 GMT; worker thread 1 received message: {"type":"qoper8-exit"}
-        worker thread 1 will now shut down
-        *** master received exit event from worker process 1
-        exit received from worker thread 1
-
-
-When all Worker Threads have shut down, the Master Process shuts itself down:
-
-        No worker processes are running
-        Master process will now shut down
-
-
-
-## Handling Multiple Messages
-
-So far we've only queued a single message. We'll now see what happens when multiple messages are added
- to the queue. 
-
-The following example (see *test3.js* in the */examples* folder) will queue two messages as soon
-as the Master Process has started.  However, the Worker Thread pool size will be the default of 1:
-
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
-
-        q.on('started', function() {
-
-          var messageObj = {
-            type: 'testMessage1',
-            hello: 'world'
-          };
-          this.addToQueue(messageObj);
-
-          messageObj = {
-            type: 'testMessage2',
-            hello: 'rob'
-          };
-          this.addToQueue(messageObj);
-        });
-
-        q.start();
-
-        setTimeout(function() {
-          q.stop();
-        }, 5000);
-
-
-
-When you run this script, the console log will show the Master Process starting and the Worker
-Thread being started as before, and then you'll see it handling the first queued message:
-
-        Tue, 20 Aug 2019 10:31:12 GMT; worker thread 1 received message: {"type":"testMessage1","hello":"world"}
-        Tue, 20 Aug 2019 10:31:12 GMT; master process received response from worker thread 1: {"type":"testMessage1","finished":true,"message":{"error":"No handler found for testMessage1 message"}}
-        Master process has finished processing response from worker thread 1 which is back in available pool
-
-As soon as the Worker Thread becomes available again, it is sent the next queued message by the
-Master Process:
-
-        Tue, 20 Aug 2019 10:31:12 GMT; worker thread 1 received message: {"type":"testMessage2","hello":"rob"}
-
-and this also generates an error in the Worker Thread:
-
-        Tue, 20 Aug 2019 10:31:12 GMT; master process received response from worker thread 1: {"type":"testMessage2","finished":true,"message":{"error":"No handler found for testMessage2 message"}}
-        Master process has finished processing response from worker thread 1 which is back in available pool
-
-The key, important thing to understand from this test script is that the Worker Thread is only handling
-**one message at a time**.  Only when the Worker Thread tells the Master Process that it has finished
-processing its message will the Master Process send it the next available queued message (if one exists).
-
-This means that because the Worker Thread only processes one message at a time, its handler method has
-exclusive access to that Worker Thread and therefore does not have to compete for the Worker Thread's
-resources with any other processing logic.  The normal concurrency issues that Node.js developers
-need to consider, such as avoiding CPU-intensive logic, no longer apply when using a *qoper8-wt*
-Worker Thread.
-
-Try adding more messages to the queue and see how *qoper8-wt* handles them.
-
-
-## Increasing the Worker Thread Pool Size
-
-The Worker Thread Pool Size is one of many things that can be customised using configuration
-properties and methods.
-
-The best place to customise the *qoper8-wt* configuration is within a *start*ùevent handler.
-
-For example, you can specify a Worker Thread Pool Size of 2 in one of two ways.
-
-Using a built-in method:
-
-        q.on('start', function() {
-          this.setWorkerPoolSize(2);
-        });
-
-or by setting the configuration property:
-
-        q.on('start', function() {
-          this.worker.poolSize = 2;
-        });
-
-
-If you modify the previous example to use 2 worker processes, you should see a quite different
-result, particularly if you queue up a larger number of message. 
-
-For example, take the following script (see *test4.js* in the */examples* folder) which will
-set a Worker Thread Pool Size of 2 and then queue up 5 messages when the Master Process has
-started:
-
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
-
-        q.on('start', function() {
-          this.setWorkerPoolSize(2);
-        });
-
-        q.on('started', function() {
-          var noOfMessages = 5;
-          var messageObj;
-          for (var i = 0; i < noOfMessages; i++) {
-            messageObj = {
-              type: 'testMessage1',
-              hello: 'world',
-              no: i
-            };
-            this.addToQueue(messageObj);
-          }
-        });
-
-        q.start();
-
-        setTimeout(function() {
-          q.stop();
-        }, 10000);
-
-
-We can also add the following so we can see how many messages were handled by each Worker Thread:
-
-        setTimeout(function() {
-          console.log('Messages handled by each Worker Thread:');
-          for (threadId in q.worker.process) {
-            console.log('Thread ' + threadId + ': ' + q.worker.process[threadId].totalRequests);
-          }
-        }, 5000);
-
-
-Run this script and the log will look quite different to previously.  You'll see the first two messages
-in the queue causing the startup of the two available Worker Threads:
-
-        sent qoper8-start message to worker thread 1
-        ...
-        sent qoper8-start message to worker thread2
-        ...
-        loading Worker Thread Startup File
-        loading Worker Thread Startup File
-        ...
-        Tue, 20 Aug 2019 11:18:56 GMT; master process received response from worker thread 1: {"type":"workerThreadStarted","ok":1}
-        new worker thread 1 started and ready so process queue again
-        ...
-        Tue, 20 Aug 2019 11:18:56 GMT; master process received response from worker thread 2: {"type":"workerThreadStarted","ok":2}
-        new worker thread2 started and ready so process queue again
-
-and, as each Worker Thread signals the completion of its initialisation to the Master Process,
-you'll then see the queued messages being sent to them.
-
-If you try running the script repeatedly, you'll probably see differences in terms of how many
-messages were handled by each Worker Thread, eg:
-
-
-        Messages handled by each Worker Thread:
-        Thread 1: 4
-        Thread 2: 1
-
-or, eg:
-
-
-        Messages handled by each Worker Thread:
-        Thread 1: 5
-        Thread 2: 0
-
-Once again, however, you'll see that each of the two Worker Threads only handles a single message
-at a time, but this time the work of processing them is spread between the two available Worker Threads.
-
-
-
-## Defining a Worker Thread Message Handler
-
-In the examples above, the Worker Threads have been applying a default *message event handler*. 
-That's what's generating the error output lines such as this:
-
-        Tue, 20 Aug 2019 11:18:56 GMT; master process received response from worker thread 2: {"type":"testMessage1","finished":true,"message":{"error":"No handler found for testMessage1 message"}}
-
-
-You customise the behaviour of each Worker Thread by creating a Worker Handler Module that 
-*qoper8-wt* will load into each worker process when they are started.
-
-Your module can define any of the following event handlers:
-- **start**: this will be invoked whenever a Worker Thread starts, at the point just before it
-becomes ready for use by the Master Process ready
-- **stop**: this will be invoked just before a Worker Thread closes down
-- **message**: this is invoked whenever a message is received by the Worker Thread. 
-This is where you define your logic for handling all messages (with the exception of 
-*qoper8-wt*'s own control messages)
-
-
-### Example Worker Thread Message Handler Module
-
-Here's a simple example of a worker module:
-
-
-        module.exports = function() {
-
-          this.on('start', function() {
-            if (this.log) console.log('Worker process ' + this.threadId + ' starting...');
-          });
-
-          this.on('message', function(messageObj, send, finished) {
-            var response = {
-              hello: 'world'
-            };
-            finished(response);
-          });
-
-          this.on('stop', function() {
-            if (this.log) console.log('Worker process ' + this.threadId + ' stopping...');
-          });
-
-        };
-
-
-You should always adhere to the pattern shown above:
-
-- create a function that is exported from the module
-- the function should have no arguments
-- within the function you can define any or all of the worker's event hander functions
-
-
-### The *start* event handler
-
-The *start* event handler is where you can do things such as connect to databases or 
-load other modules that you'll need in each Worker Thread.
-
-Within the handler's callback function, *this* provides you access to all the
-*qoper8-wt* Worker methods and properties.
-
-The *on('start')* event's callback function can take a single optional argument: *isFirst*
-
-This argument will be true if this is the first time a Worker Thread has been started since 
-*qoper8-wt* itself was started. This is useful in situations where you want to initialise data
- in a database when *qoper8-wt* is started, but before any subsequent activity occurs.
-
-
-### The *stop* event handler
-
-Your *stop* event handler is where you can do things such as cleanly disconnect from 
-databases or tidy up other resources before the Worker Thread is terminated. 
-
-Within the handler's callback function, *this* provides you access to all the
-*qoper8-wt* Worker methods and properties.
-
-
-### The *message* event handler
-
-The *message* event handler is where you'll define how to process all incoming messages
- that you have added to the queue. How they are processed is entirely up to you.
-
-Its callback function provides three argument:
-
-- **messageObj**: the raw incoming message object, sent from the Master Process's queue.
-- **send**: a function that allows you to send a message to the Master Process without returning the
-worker back to the available pool
-- **finished**: a function that allows you to send a message to the Master Process, and signalling to
-the Master Process that you have finished using the Worker Thread. The worker will be returned 
-back to the available pool
-
-Within the handler's callback function, *this* provides you access to all the
-*qoper8-wt* Worker methods and properties. What you do with the message within the Worker 
-Thread is entirely up to you. Once you've finished processing the message, you send the 
-results back to the Master Process by invoking the *finished()* method.
-
-The *finished* function takes a single argument:
-
-- **resultObj**: an object containing the results that are to be returned to the master process
-
-On receipt of the message created by the `finished()` method, the Master Process will 
-return the Worker Thread back to the available pool.
-
-You can optionally send more than one message back to the master process during processing, 
-prior to using the *finished()* method. To do this, use the *send()* method. This takes the same argument
-as the *finished()* method, ie  *resultObj*. 
-
-The difference between *send()* and *finished()* is that on receipt of the *send()* function's message, 
-the Master Process does not return the Worker Thread back to the available pool.
-
-By default, both the *send()* and *finished()* functions return to the Master Process a 
-message whose type property is the same as that of the message being handled. You can optionally use
-the *send()* function to return messages with a different type property to the master process. 
-To do this, simply define a type property in the *resultObj* object argument. Note that you 
-cannot override the type property of the *finished()* function's result object (even if you try to
-do so by specifying a *type* property in the *resultObj* object).
-
-Make sure that your *on('message')* handler logic always ends with an invocation of the *finished()*
- function, and only invoke it once - failure to do so will cause the Worker Thread to not be 
-released back to the available pool.
-
-
-## Configuring *qoper8-wt* To Use Your Worker Handler Module
-
-You instruct *qoper8-wt* to load your Worker Handler Module by setting the property 
-*this.worker.module* from within your script's *on('start')* method handler. 
-The module you specify will be loaded (using *require()*) into each Worker Thred when the
-Worker Thread is started.
-
-For example, if you saved your module in *./node_modules/exampleModule.js*, then you instruct 
-*qoper8-wt* to load it as follows, eg:
-
-
-        q.on('start', function() {
-          this.worker.module = 'exampleModule';
-        });
-
-
-If your module is saved elsewhere, specify the module path accordingly. For example if you 
-look at the example script *test5.js* in the */examples* folder, you'll see that it specifies:
-
-
-        q.on('start', function() {
-          this.setWorkerPoolSize(2);
-          this.worker.module = process.cwd() + '/examples/example-worker-module';
-        });
-
-You may need to modify the module path as appropriate for your Node.js environment.  If in
-doubt, specify a full, hard-coded path, eg:
-
-          this.worker.module = '/home/pi/qewd/examples/example-worker-module';
-
-Once you've edited this path appropriately, try running the *test5.js* script to see the 
-effect of this module on the messages returned to the Master Process.
-
-
-## Handling the Results Object Returned from a Worker Thread
-
-When a results object is returned from a Worker Thread, you'll normally want to
-define how the Master Process should handle it. 
-
-Thus far, we've been letting *qoper8-wt*'s default action to take place,
-which is to simply report the returned result message to the console.
-
-The basic mechanism for handling messages returned by Worker Threads is to define an 
-*on('response')* handler in your main script, eg:
-
-
-        q.on('response', function(responseObj, threadId) {
-          console.log('Received from Worker Thread ' + threadId + ': ' + JSON.stringify(responseObj, null, 2));
-        });
-
-
-As you can see above, the *on('response')* handler callback function provides two arguments:
-- **resultsObj**: the raw incoming results object, sent from the worker process.
-- **pid**: the process Id of the worker that handled the original message and sent this response
-
-How you handle each returned message and what you do with it is up to you. Within the 
-*on('response')* handler's callback function, *this* provides access to all of the Master Process's
-*qoper8-wt* properties and methods.
-
-Note that your *on('response')* handler function method intercepts *all* messages returned by 
-Worker Threads, including *qoper8-wt*'s own ones. You'll be able to distinguish them because their 
-type will have *qoper8-* as a prefix.
-
-For a worked example, take a look at *test6.js* in the */examples* folder:
-
-
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
-
-        q.on('start', function() {
-          this.setWorkerPoolSize(2);
-          this.worker.module = process.cwd() + '/examples/test-workerModule1';
-        });
-
-        q.on('response', function(responseObj, threadId) {
-          console.log('** Master Process received from Worker Thread ' + threadId + ': ' + JSON.stringify(responseObj, null, 2));
-        });
-
-        q.on('started', function() {
-          var noOfMessages = 5;
-          var messageObj;
-          for (var i = 0; i < noOfMessages; i++) {
-            messageObj = {
-              type: 'testMessage1',
-              hello: 'world'
-            };
-            this.addToQueue(messageObj);
-          }
-        });
-
-        q.start();
-
-        setTimeout(function() {
-          console.log('Messages handled by each Worker Thread:');
-          for (threadId in q.worker.process) {
-            console.log('Thread ' + threadId + ': ' + q.worker.process[threadId].totalRequests);
-          }
-          q.getWorkerAvailability(function(available) {
-            console.log('Worker availability: ' + JSON.stringify(available));
-          });
-        }, 5000);
-
-        setTimeout(function() {
-          q.stop();
-        }, 10000);
-
-
-
-## Simpler Message Handling with the *handleMessage()* Function
-
-Although the *addMessage()* function and the *on('response')* event handler provide 
-the basic mechanisms for handling messages within the *qoper8-wt* Master Process, 
-you can combine their operation by using the *handleMessage()* function instead.  You'll
-probably find this preferable and a much slicker approach.
-
-The *handleMessage()* function has two arguments:
-
-- **messageObj**: the message object to be added to the Master Process's queue
-- **callback**: a callback function which provides a single argument: *responseObj*
- containing the response object that was sent by the Worker Thread that handled the message.
-
-Note that the callback function will fire for messages sent from the Worker Thread using 
-both its *send()* and *finished()* functions.
-
-For a worked example, take a look at *test7.js* in the */examples* folder:
-
-
-        var qoper8 = require('qoper8-wt');
-        var q = new qoper8.masterProcess();
-
-        q.on('start', function() {
-          this.toggleLogging();
-          this.worker.poolSize = 1;
-          this.worker.module = process.cwd() + '/examples/test-workerModule2';
-        });
-
-        q.on('stop', function() {
-          console.log('Test 7 Completed')
-        });
-
-        q.on('started', function() {
-          var noOfMessages = 5;
-          var messageObj;
-          for (let i = 0; i < noOfMessages; i++) {
-            messageObj = {
-              type: 'testMessage1',
-              hello: 'world'
-            };
-
-            // Using the handleMessage() function here:
-
-            this.handleMessage(messageObj, function(response) {
-              console.log('** Master Processes received message: ' + i + ': ' + JSON.stringify(response, null, 2));
-            });
-          }
-        });
-
-        q.start();
-
-        setTimeout(function() {
-          console.log('Messages handled by each Worker Thread:');
-          for (threadId in q.worker.process) {
-            console.log('Thread ' + threadId + ': ' + q.worker.process[threadId].totalRequests);
-          }
-          q.stop();
-        }, 10000);
-
-
-
-Here's the *on('message')* handler in the Worker Handler Module for this example:
-
-
-        this.on('message', function(messageObj, send, finished) {
-
-          send({
-            info: 'intermediate message',
-            pid: process.pid
-          });
-
-          count++;
-          var results = {
-            count: count,
-            time: new Date().toString()
-          };
-          finished(results);
-        });
-
-
-Notice the way this is sending messages using both the *send()* and *finished()* functions. 
-You'll see in the console log that both are intercepted by the *handleMessage()* function's 
-callback function.
-
-
-## Master Process Events, Methods and Properties
-
-The Master Process *qoper8* object is instantiated as follows:
-
-        var qoper8_wt = require('qoper8-wt');
-        var qoper8 = new qoper8_wt.masterProcess();
-
-Event Handlers, properties and methods that you can use are as follows:
-
-### Master process Event Handlers
-
-- **start**: The Master Process has started but not yet created the Worker Thread bootstrap Module.
-This is a good event to use for changing configuration settings, augmenting the *qoper8* object etc
-
-
-  - arguments: none
-
-  - example:
-
-        qoper8.on('start', function() {
-          this.toggleLogging();
-          this.worker.poolSize = 1;
-          this.worker.module = process.cwd() + '/examples/test-workerModule2';
-        });
-
-
-- **started**: *qoper8-wt* is fully ready for use.  Define your application's behaviour here, adding
-messages to the queue.
-
-  - arguments: none
-
-  - example:
-
-        qoper8.on('started', function() {
-          var messageObj = {
-            type: 'testMessage',
-            hello: 'world'
-          };
-
-          this.handleMessage(messageObj, function(response) {
-            console.log('** Master Processes received message: ' + i + ': ' + JSON.stringify(response, null, 2));
-          });
+      let res = await qoper8.send({
+        type: 'myMessageType1',
+        data: {
+          hello: 'world'
         }
       });
 
 
+## What Happens When You Add A Message To the *QOper8-wt* Queue?
 
-- **stop**: The Master Process has shut down all previously-running Worker Threads and is about to
-terminate.  Use this event to cleanly release any resources from the Master Process
+Adding a Message to the queue sets off a chain of events:
 
-  - arguments: none
- 
-  - example:
- 
-        qoper8.on('stop', function() {
-          console.log('Master process is about to stop')
+
+1. *QOper8-wt* first checks to see if a Worker Thread process is available
+
+  - if not, and if the Worker Thread poolsize has not yet been exceeded, *QOper8-wt*:
+
+    - starts a new Worker Thread process, loading it with its own Worker Thread module file
+    - sends an initialisation message to the new Worker Thread process with the relevent configuration parameters
+    - on completion, the Worker Thread returns a message to the main process, instructing *QOper8-wt* that the Worker Thread is ready and available
+
+  - if not, and if the maximum number of Worker Threads is already running, no further action takes place and the new message is left in the queue for later processing
+
+  - if a Worker Thread process is available, *QOper8-wt* extracts the first message from the queue and sends it to the allocated Worker Thread process.  The Worker Thread process is flagged as *unavailable*
+
+
+2. When the Worker Thread process receives the message:
+
+  - it checks the *type* value against the *handlersByMessageType* Map.  If the associated handler method script has not been loaded into the Worker Thread, it is now loaded
+
+  - the type-specific Handler Method is invoked, passing the incoming message object as its first argument.
+
+3. When the Handler Method completes, the *QOper8-wt* Worker Thread returns its response object to the awaiting main process Promise.  The main *QOper8-wt* process:
+
+  - flags the Worker Thread process as *available*
+  - repeats the procedure, starting at step *1)* above again
+
+
+So, as you can see, everything related to the Worker Thread processes and the message flow between the main process and the Worker Thread processes is handled automatically for you by *QOper8-wt*.  As far as you are concerned, there are just three steps:
+
+- you ceeate a Message Handler script file for each of your required message *type*s
+
+- you then add objects to the *QOper8-wt* queue, specifying the message *type* for each one
+
+- you await the response object returned from the Worker Thread by your message handler
+
+
+## The Message Handler Method Script
+
+*QOper8-wt* Message Handler Method script modules must conform to a predetermined pattern as follows:
+
+      let handler = function(messageObj, finished) {
+
+        // your logic for processing the incoming message object (messageObj) 
+
+        // as a result of your processing, create a response object (responseObj)
+
+        // when processing is complete, you MUST invoke the finished() method and exit the handler method:
+
+        return finished(responseObj);
+
+      };
+
+      // export the handler function
+
+      export {handler};
+
+
+
+The structure and contents of the response object are up to you.  
+
+The *finished()* method is provided for you by the *QOper8-wt* Worker module.  It:
+
+- returns the response object (specified as its argument) to the main *QOper8-wt* process
+- instructs the main *QOper8-wt* process that processing has completed in the Worker Thread, and, as a result, the Worker Thread is flagged as *available* for handling any new incoming/queued messages
+- finally tells *QOper8-wt* to process the first message in its queue (unless it's empty)
+
+
+For example:
+
+      let handler = function(obj, finished) {
+
+        // simple example that just echoes back the incoming message
+
+        finished({
+          processing: 'Message processing done!',
+          data: obj.data,
+          time: Date.now()
+        });
+
+      };
+      export {handler};
+
+
+## Simple Example
+
+This simple example creates a pool of just a single Worker Thread (the default configuration) and allows you to process a message of type *myMessage*
+
+First, let's define the Message Handler Script file.  We'll use the example above.  Note that, since it needs to be handled as a Module by Node.js, you should specify a file extension of *.mjs*:
+
+### myMessage.mjs
+
+      let handler = function(obj, finished) {
+
+        // simple example that just echoes back the incoming message
+
+        finished({
+          processing: 'Message processing done!',
+          data: obj.data,
+          time: Date.now()
+        });
+
+      };
+      export {handler};
+
+
+Now define our main Node.js script file.  Note the mapping of the *myMessage* type to the *myMessage.js* handler module.  Once again, use a file extension of *.mjs*:
+
+### app.mjs
+
+        import {QOper8} from 'qoper8-wt';
+
+        // Start/Configure an instance of the *QOper8* class:
+
+        let qoper8 = new QOper8({
+          logging: true,
+          handlersByMessageType: new Map([
+            ['myMessage', {module: './myMessage.mjs'}]
+          ]),
+          workerInactivityLimit: 2
         });
 
 
-- **queued**: A message object has been added to the queue
+        // add a message to the *QOper8-wt* queue and await its results
 
-  - arguments:
-    - **messageObj**: the message object that has been added to the queue
-    - **queue_length**: the current length of the queue
-
-  - example:
-
-        qoper8.on('queued', function(messageObj, queue_length) {
-          console.log('Message added to queue: ' + JSON.stringify(messageObj));
-          console.log('Current queue length: ' + queue_length);
+        let res = await qoper8.send({
+          type: 'myMessage',
+          data: {
+            hello: 'world'
+          }
         });
 
-
-- **beforeDispatch**: A queued message is about to be sent to a Worker Thread
-
-  - arguments:
-    - **messageObj**: the message object that is about to be sent to the Worker Thread
-    - **threadId**: the identifier of the Worker Thead to which the message will be sent
-
-  - example:
-
-        qoper8.on('beforeDispatch', function(messageObj, threadId) {
-          console.log('About to send message to ' + threadId + ': ' + JSON.stringify(messageObj));
-        });
+        console.log('Results received from Worker Thread:');
+        console.log(JSON.stringify(res, null, 2));
 
 
-- **workerStarted**: A Worker Thread has been started but not yet processed any messages
+Load and run this module:
 
-  - arguments:
-    - **threadId**: the identifier of the Worker Thead that has been started
-
-  - example:
-
-        qoper8.on('workerStarted', function(threadId) {
-          console.log('Worker Thread ' + threadId + ' has started');
-        });
+        node app.mjs
 
 
-- **response**: A response message has been received from a Worker Thread
+You should see the *console.log()* messages generated at each step by *QOper8-wt* as it processes the queued message, eg:
 
-  - arguments:
-    - **responseObj**: the response object returned from the Worker Thread
-    - **threadId**: the identifier of the Worker Thead that returned the message
+        $ node app.mjs
 
-  - example:
-
-        qoper8.on('workerStarted', function(threadId) {
-          console.log('Worker Thread ' + threadId + ' has started');
-        });
-
-
-### Master Process Methods
-
-- **addToQueue:** Add a message object to the queue
-
-  - arguments:
-    - **messageObj**: the message object to be added to the queue
-
-  - example:
-
-        qoper8.addToQueue({
-          type: 'testMessage', // all queued messages should include a type property
-          foo: 'bar'
-        });
-
-
-- **getWorkerThreadIds:** returns an array of the Thread Identifiers of all currently running Worker
-Threads
-
-  - arguments: none
-
-  - example:
-
-        console.log('Current threads: ' + qoper8.getWorkerThreadIds());
-
-
-- **handleMessage:** Add a message to the queue and handle response(s) via callback
-
-  - arguments:
-    - **messageObj**: the message object to be added to the queue
-    - **callback**: function that fires on receipt of any response from Worker Thread that handled this
-message.  The callback function's argument is the response object received from the Worker Thread
-
-  - example:
-
-        var messageObj = {
-          type: 'testMessage1',
-          hello: 'world'
-        };
-        qoper8.handleMessage(messageObj, function(response) {
-          console.log('** Master Processes received message: ' + JSON.stringify(response, null, 2));
-        });
-
-
-- **handleStats:** Obtain usage and resource utilisation statistics for Master Process
-and Worker Threads
-
-  - arguments:
-    - **callback**: Fires on completion of the statistics gathering process, returning
-and object that contains the statistics 
-
-  - example:
-
-        qoper8.handleStats(function(statsObj) {
-          console.log('utilisation statistics: ' + JSON.stringify(statsObj));
-        });
-
-The Statistics Object will typically look like this (hopefully self-explanatory):
-
-        {
-          "master": {
-            "pid": 7331,
-            "memory": {
-              "rss": "35.10",
-              "heapTotal": "4.02",
-              "heapUsed": "1.93"
-            },
-            "uptime": "0 days 0:00:05",
-            "queueLength": 0,
-            "workerThreads": [
-              "1",
-              "2"
-            ]
+        ========================================================
+        qoper8-wt Build 5.0; 12 August 2022 running in process 349355
+        Max worker pool size: 1
+        ========================================================
+        1660638301900: try processing queue: length 1
+        1660638301901: no available workers
+        1660638301901: starting new worker
+        1660638302039: new worker 0 started...
+        1660638302042: response received from Worker: 0
+        1660638302042: {
+          "threadId": 1
+        }
+        1660638302043: try processing queue: length 1
+        1660638302043: worker 0 was available. Sending message to it
+        1660638302043: Message received by worker 0: {
+          "type": "myMessage",
+          "data": {
+            "hello": "world"
+          }
+        }
+        1660638302056: response received from Worker: 0
+        1660638302056: {
+          "processing": "Message processing done!",
+          "data": {
+            "hello": "world"
           },
-          "worker": [
-            {
-              "threadId": 1,
-              "uptime": "0 days 0:00:04",
-              "noOfMessages": 8,
-              "memory": {
-                "rss": "35.10",
-                "heapTotal": "3.77",
-                "heapUsed": "1.62"
-              },
-              "available": true
-            },
-            {
-              "threadId": 2,
-              "uptime": "0 days 0:00:04",
-              "noOfMessages": 3,
-              "memory": {
-                "rss": "35.10",
-                "heapTotal": "3.77",
-                "heapUsed": "1.61"
-              },
-              "available": true
-            }
-          ]
+          "time": 1660638302054
+        }
+        1660638302057: try processing queue: length 0
+        1660638302057: Queue empty
+        Results received from Worker Thread:
+        {
+          "processing": "Message processing done!",
+          "data": {
+            "hello": "world"
+          },
+          "time": 1660638302054,
+          "qoper8": {
+            "finished": true
+          }
         }
 
 
-- **setWorkerIdleLimit:** set the number of ms that a Worker Thread can remain idle until it will be
-automatically shut down (default = 3600000 [1 hour])
+If you now leave the web page alone, you'll see the messages generated when it periodically checks the Worker Thread process for inactivity.  Eventually you'll see it being shut down automatically, eg:
 
-  - arguments: idle time limit in milliseconds
+        1660638703175: Worker 0 inactive for 60047
+        1660638703175: Inactivity limit: 120000
+        1660638763236: Worker 0 inactive for 120108
+        1660638763241: response received from Worker: 0
+        1660638763242: {}
+        1660638763242: QOper8 is shutting down Worker Thread 0
+        1660638763237: Inactivity limit: 120000
+        1660638763239: Worker 0 sending request to shut down
 
-  - example:
-
-        qoper8.setWorkerIdleLimit(1800000);
-
-
-
-- **setWorkerPoolSize:** set the maximum number of Worker Threads that can be running consecutively
-
-  - arguments: maxNoOfThreads
-
-  - example:
-
-        qoper8.setWorkerPoolSize(8);  // Sets a Worker Pool Size of 8
+        $
 
 
-- **stop:** Instigate an orderly shutdown of all Worker Threads followed by the Master Process.  The
-Master Process will not stop until all Worker Threads have signalled that they have been shut down.
+Alternatively, you can shut down the Node.js process by typing *CTRL & C*, in which case you'll see *QOper8-wt* gracefully terminating the Worker Threads before shutting itself down, eg:
 
-  - arguments: none
+        ^C1660638577024: *** CTRL & C detected: shutting down gracefully...
+        1660638577026: Worker Thread 0 is being stopped
+        1660638577028: Message received by worker 0: {
+          "type": "qoper8_terminate"
+        }
+        1660638577030: response received from Worker: 0
+        1660638577030: {}
+        1660638577031: QOper8 is shutting down Worker Thread 0
+        1660638577031: Worker Thread 0 has been stopped (1)
+        1660638577032: No Worker Threads are running: QOper8 is no longer handling messages
+        1660638577029: Worker 0 sending request to shut down
 
-  - example:
-
-        qoper8.stop();
-
-
-- **stopWorker:** Instigate an orderly shutdown of a specified Worker Thread
-
-  - arguments: threadId
-
-  - example:
-
-        qoper8.stopWorker(2);  // Stop the Worker Thread whose Thread Id is 2
-
-
-- **toggleLogging:** Toggles logging of *qoper8-wt* activity to the console.  Logging is enabled
-by default
-
-  - arguments: none
-
-  - example:
-
-        var loggingStatus = qoper8.toggleLogging();  // returns true | false
-
-
-- **upTime:** returns the length of time (in days + hh:mm:ss) that the Master Process has been running
-
-  - arguments: none
-
-  - example:
-
-        var uptime = qoper8.upTime();  // eg 0 days 0:00:04
-
-
-- **version:** returns the *qoper8-wt* Build/Version details
-
-  - arguments: none
-
-  - example:
-
-        var version = qoper8.version();  // eg "qoper8-wt Build 4.0.1; 20 August 2019"
+        $
 
 
 
-### Master Process Properties
+## How Many Worker Threads Should I Use?
 
-- **checkWorkerPoolDelay**: No of milliseconds between each check made by the Master Process to determine
-whether any Worker Threads should be stopped due to inactivity.  Default is 300000ms (ie 5 minutes)
+It's entirely up to you.  Each Worker Thread in your pool will be able to invoke your type-specific message handlers, and each will run identically.  There's a few things to note:
 
-- **log**: Set to *true* to enable activity logging to the console, *false* to disable logging.
-Logging is enabled by default.
+- Having more than one Worker Thread will allow a busy workload of queued messages to be shared amongst the Worker Thread pool;
 
-- **shutdownDelay**: No of milliseconds that the Master Process will wait for an "exit" acknowledgement
-message from a Worker Thread that it has instructed to stop cleanly.  If the "exit" response has
-not been received within this time limit, the Master Process will force the Worker 
-Thread to stop. Default = 20000 (ie 20 sec)
+- if you have more than one Worker Thread, you have no control over which Worker Thread handles each message you add to the *QOper8-wt* queue.  This should normally not matter to you, but you need to be aware;
 
-- **worker.module**: specifies the path of your Worker Thread Handler Module which will be loaded into
-each Worker Thread when started.
+- A *QOper8-wt* Worker Thread process only handles a single message at a time.  The Worker Thread is not available again until it invokes the *finished()* method within your handler.
+
+- You'll find that overall throughput will initially increase as you add more Worker Threads to your pool, but you'll then find that throughput will start to decrease as you further increase the pool.  It will depend on a number of factors, but primarily the number of CPU cores available on the machine running Node.js and *Qoper8-wt*.  Typically optimal throughput is achieved with between 3 and 7 Worker Threads.
+
+- If you use just a single Worker Thread, your queued messages will be handled individually, one at a time, in strict chronological sequence.  This can be advantageous for certain kinds of activity where you need strict control over the serialisation of activities.  The downside is that the overall throughput will be typically less than if you had a larger Worker Thread pool.
 
 
-Master Process properties are normally set within the Master Process *start* event handler, 
-where they are accessed as properties of *this*, eg:
+## Benchmarking *QOper8-wt* Throughput
 
-        qoper8.on('start', function() {
-          this.checkWorkerPoolDelay = 600000;
-          this.log = false;
-          this.worker.module = '/examples/example-worker-module';
+To get an idea of the throughput performance of *QOper8-wt* on different browsers, you can use the benchmarking test script that is included in the [*/benchmark*](./benchmark) folder of this repository.
 
-          this.setWorkerPoolSize(8);  // Worker Process methods are also accessible via this
+To run it, create a Node.js script file (eg *benchmark.mjs*), following this pattern:
 
+        import {benchmark} from 'qoper8-wt/benchmark';
+
+        benchmark({
+          poolSize: 3,
+          maxMessages: 100000,
+          blockLength:1400,
+          delay: 135
+        });
+
+The benchmark test script allows you to specify the Worker Thread Pool Size, and you then set up the parameters for generating a stream of identical messages that will be handled by a simple, built-in almost "do-nothing" message handler.  
+
+You specify the total number of messages you want to generate, eg 100,000, but rather than the application simply adding the whole lot to the *QOper8-wt* queue in one go, you define how to generate batches of messages that get added to the queue.  So you define:
+
+- the message block size, eg 1400 messages at a time
+- the delay time between blocks of messages, eg 135ms
+
+This avoids the performance overheads of the browser's JavaScript run-time handling a potentially massive array which could potententially adversely affect the performance throughput.
+
+The trick is to create a balance of batch size and delay to maintain a sustainably-sized queue.  The application reports its work and results to the browser's JavaScript console, and will tell you if the queue increases with each message batch, or if the queue is exhausted between batches.
+
+Keep tweaking the delay time:
+
+- increase it if the queue keeps expanding with each new batch
+- decrease it if the queue is getting exhausted at each batch
+
+At the end of each run, the application will display, in the JavaScript console:
+
+- the total time taken
+- the throughtput rate (messages handled per second)
+- the number of messages handled by each of the Worker Threads in the pool you specified.
+
+
+For example:
+
+        benchmark({
+          poolSize: 3,
+          maxMessages: 5000,
+          blockLength:100,
+          delay: 140
         });
 
 
 
-## Worker Thread Events and Properties
+        $ node benchmark.mjs
 
-The Worker Thread *qoper8* object is instantiated within a Worker Thread whenever the
-Worker Thread is started by the Master Process.
+        Block no: 1 (0): Queue exhausted
+        Block no: 2 (100): queue length increased to 100
+        Block no: 3 (200): Queue exhausted
+        Block no: 4 (300): Queue exhausted
+        Block no: 5 (400): Queue exhausted
+        Block no: 6 (500): Queue exhausted
+        Block no: 7 (600): Queue exhausted
+        Block no: 8 (700): Queue exhausted
+        Block no: 9 (800): Queue exhausted
+        Block no: 10 (900): Queue exhausted
+        Block no: 11 (1000): Queue exhausted
+        Block no: 12 (1100): Queue exhausted
+        Block no: 13 (1200): Queue exhausted
+        Block no: 14 (1300): Queue exhausted
+        Block no: 15 (1400): Queue exhausted
+        Block no: 16 (1500): Queue exhausted
+        Block no: 17 (1600): Queue exhausted
+        Block no: 18 (1700): Queue exhausted
+        Block no: 19 (1800): Queue exhausted
+        Block no: 20 (1900): Queue exhausted
+        Block no: 21 (2000): Queue exhausted
+        Block no: 22 (2100): Queue exhausted
+        Block no: 23 (2200): Queue exhausted
+        Block no: 24 (2300): Queue exhausted
+        Block no: 25 (2400): Queue exhausted
+        Block no: 26 (2500): Queue exhausted
+        Block no: 27 (2600): Queue exhausted
+        Block no: 28 (2700): Queue exhausted
+        Block no: 29 (2800): Queue exhausted
+        Block no: 30 (2900): Queue exhausted
+        Block no: 31 (3000): Queue exhausted
+        Block no: 32 (3100): Queue exhausted
+        Block no: 33 (3200): Queue exhausted
+        Block no: 34 (3300): Queue exhausted
+        Block no: 35 (3400): Queue exhausted
+        Block no: 36 (3500): Queue exhausted
+        Block no: 37 (3600): Queue exhausted
+        Block no: 38 (3700): Queue exhausted
+        Block no: 39 (3800): Queue exhausted
+        Block no: 40 (3900): Queue exhausted
+        Block no: 41 (4000): Queue exhausted
+        Block no: 42 (4100): Queue exhausted
+        Block no: 43 (4200): Queue exhausted
+        Block no: 44 (4300): Queue exhausted
+        Block no: 45 (4400): Queue exhausted
+        Block no: 46 (4500): Queue exhausted
+        Block no: 47 (4600): Queue exhausted
+        Block no: 48 (4700): Queue exhausted
+        Block no: 49 (4800): Queue exhausted
+        Block no: 50 (4900): Queue exhausted
+        Completed sending messages
+        ===========================
 
-You can access its events, methods and properties from within your Worker Thread Handler Module.
-They are available via the *this* object.
+        5000 messages: 7.16 sec
+        Processing rate: 698.3240223463687 message/sec
+        Worker Thread 0: 1767 messages handled
+        Worker Thread 1: 1735 messages handled
+        Worker Thread 2: 1498 messages handled
 
-Event Handlers and properties that you can use are as follows:
+        ===========================
+        $
 
+You can see in this test run, the queue was constantly being exhausted: it was being processed faster than it was being refilled.  If we reduce the delay time right down, eg:
 
-### Worker Thread Event Handlers
-
-- **start**: The Worker Thread has started and is ready for use, but hasn't yet signalled
-to the Master Process that it is ready for messages to be sent to it. 
-This is therefore a good event to use for 
-loading additional Node.js modules, attaching databases, making external connections, 
-augmenting the *this* object for your own purposes, etc.
-
-
-  - arguments: none
-
-  - example:
-
-        this.on('start', function() {
-          if (this.log) console.log('Worker Thread ' + this.threadId + ' starting...');
+        benchmark({
+          poolSize: 3,
+          maxMessages: 5000,
+          blockLength:100,
+          delay: 10
         });
 
 
-- **stop**: The Worker Thread is about to stop. This is a good event to use for 
- cleanly releasing resources, eg detaching databases, removing external connections, etc.
+        webmaster@mgateway:~/node_projects$ node benchmark.mjs
+        Block no: 1 (0): Queue exhausted
+        Block no: 2 (100): queue length increased to 100
+        Block no: 3 (200): queue length increased to 200
+        Block no: 4 (300): queue length increased to 300
+        Block no: 5 (400): queue length increased to 400
+        Block no: 6 (500): queue length increased to 500
+        Block no: 7 (600): queue length increased to 600
+        Block no: 8 (700): queue length increased to 700
+        Block no: 9 (800): queue length increased to 800
+        Block no: 10 (900): queue length increased to 900
+        Block no: 11 (1000): queue length increased to 1000
+        Block no: 12 (1100): queue length increased to 1100
+        Block no: 13 (1200): queue length increased to 1200
+        Block no: 14 (1300): queue length increased to 1300
+        Block no: 15 (1400): queue length increased to 1399
+        Block no: 16 (1500): queue length increased to 1471
+        Block no: 17 (1600): queue length increased to 1530
+        Block no: 18 (1700): queue length increased to 1605
+        Block no: 19 (1800): queue length increased to 1677
+        Block no: 20 (1900): queue length increased to 1754
+        Block no: 21 (2000): queue length increased to 1819
+        Block no: 22 (2100): queue length increased to 1886
+        Block no: 23 (2200): queue length increased to 1939
+        Block no: 24 (2300): queue length increased to 2036
+        Block no: 25 (2400): queue length increased to 2098
+        Block no: 26 (2500): queue length increased to 2159
+        Block no: 27 (2600): queue length increased to 2205
+        Block no: 28 (2700): queue length increased to 2258
+        Block no: 29 (2800): queue length increased to 2304
+        Block no: 30 (2900): queue length increased to 2328
+        Block no: 31 (3000): queue length increased to 2386
+        Block no: 32 (3100): queue length increased to 2453
+        Block no: 33 (3200): queue length increased to 2497
+        Block no: 34 (3300): queue length increased to 2519
+        Block no: 35 (3400): queue length increased to 2562
+        Block no: 36 (3500): queue length increased to 2590
+        Block no: 37 (3600): queue length increased to 2618
+        Block no: 38 (3700): queue length increased to 2676
+        Block no: 39 (3800): queue length increased to 2702
+        Block no: 40 (3900): queue length increased to 2731
+        Block no: 41 (4000): queue length increased to 2752
+        Block no: 42 (4100): queue length increased to 2769
+        Block no: 43 (4200): queue length increased to 2796
+        Block no: 44 (4300): queue length increased to 2819
+        Block no: 45 (4400): queue length increased to 2844
+        Block no: 46 (4500): queue length increased to 2868
+        Block no: 47 (4600): queue length increased to 2894
+        Block no: 48 (4700): queue length increased to 2916
+        Block no: 49 (4800): queue length increased to 2959
+        Block no: 50 (4900): queue length increased to 3008
+        Completed sending messages
+        ===========================
+
+        5000 messages: 0.959 sec
+        Processing rate: 5213.76433785193 message/sec
+        Worker Thread 0: 2021 messages handled
+        Worker Thread 1: 1512 messages handled
+        Worker Thread 2: 1467 messages handled
+
+        ===========================
+
+This time you can see that the queue is building faster than it is being consumed, but you can also see that the processing rate has gone up from 700 message/sec to 5200/sec.
+
+Tweaking the delay time a little more, we should be able to find a better balance where the queue is neither growing nor being exhausted, except occasionally, eg with a 14ms delay in this example:
+
+        webmaster@mgateway:~/node_projects$ node benchmark.mjs
+        Block no: 1 (0): Queue exhausted
+        Block no: 2 (100): queue length increased to 100
+        Block no: 3 (200): queue length increased to 200
+        Block no: 4 (300): queue length increased to 300
+        Block no: 5 (400): queue length increased to 400
+        Block no: 6 (500): queue length increased to 500
+        Block no: 7 (600): queue length increased to 600
+        Block no: 8 (700): queue length increased to 700
+        Block no: 9 (800): queue length increased to 799
+        Block no: 10 (900): queue length increased to 890
+        Block no: 11 (1000): queue length increased to 962
+        Block no: 12 (1100): queue length increased to 967
+        Block no: 46 (4500): Queue exhausted
+        Block no: 47 (4600): Queue exhausted
+        Block no: 48 (4700): Queue exhausted
+        Block no: 49 (4800): Queue exhausted
+        Block no: 50 (4900): Queue exhausted
+        Completed sending messages
+        ===========================
+
+        5000 messages: 0.809 sec
+        Processing rate: 6180.469715698393 message/sec
+        Worker Thread 0: 2004 messages handled
+        Worker Thread 1: 1661 messages handled
+        Worker Thread 2: 1335 messages handled
+
+        ===========================
+
+and you can now see that we're hitting the optimum throughput for this system, which is nearly 6200 messages/sec across 3 Worker Threads.  You can see the distribution of messages across the Worker Threads which, as you can see, isn't necessarily  an even distribution.
 
 
-  - arguments: none
 
-  - example:
+## Optionally Packaging Your Message Handler Code
 
-        this.on('stop', function() {
-          if (this.log) console.log('Worker Thread ' + this.threadId + ' stopping...');
-        });
+As you'll have seen above, the default way in which *QOper8-wt* dynamically loads each of your Message Handler script files is via a corresponding URL that you define in the *QOper8-wt* constructor's *handlersByMessageType* property.
 
+When a Message Handler Script File is needed by *QOper8-wt*, it dynamically imports it as a module.  This is the standard way to load modules into Worker Threads, but of course, it means that each of your Message Handler Script Files need to reside in a file that is fetched via the file path you've specified.
 
-- **message**: The Worker Thread has received a message.  You can now perform whatever
-processing of the message object you wish.  Your logic must always eventually terminate
-using a call of the *finished* method to make sure that the Worker Thread is released
-back to the available pool, ready for handling another message.
+This approach is OK, but you may want to create a single Node.js file that includes all your logic, including that of your Worker Message Handler scripts.
 
+*QOper8-wt* therefore provides an alternative way to define and specify your type-specific Message Handlers by creating a string that contains just the processing code.  
 
-  - arguments:
+For example:
 
-    - **messageObj**: the message object to be added to the queue
-    - **send**: function that will return a response object back to the Master Process, but leaving
-the Worker Thread unavailable
-    - **finished**: function that will return a response object back to the Master Process, and 
-instructs the Master Process to release the Worker Thread back to the available pool
-
-
-  - example:
-
-        this.on('message', function(messageObj, send, finished) {
-
-          send({
-            info: 'intermediate message',
-            foo: 'bar'
-          });
-
+        let handlerFn = `
+          let foo = message.data.foo;
+          let bar = 'xyz'
           finished({
-            time: new Date().toString()
+            processing: 'Message processing done!',
+            foo: foo,
+            bar: bar,
+            time: Date.now()
           });
+        `;
 
+Note the use of back-ticks around the code.  Basically you're leaving off the function wrapper which is added automatically at run-time to create:
+
+        function(message, finished) {
+          let foo = message.data.foo;
+          let bar = 'xyz'
+          finished({
+            processing: 'Message processing done!',
+            foo: foo,
+            bar: bar,
+            time: Date.now()
+          });
+        }
+
+Note that the message object will **always** be passed in using the argument *message*.
+
+
+You now use this in the QOper8-wt *handlersByMessageType* property by specifying a *text* object, eg:
+
+          handlersByMessageType: new Map([
+            ['myMessage', {text: 'handlerFn'}]
+          ]),
+
+
+Pulling this together, let's repackage the earlier example:
+
+
+        import {QOper8} from 'qoper8-wt';
+
+        let handlerFn = `
+          finished({
+            processing: 'Message processing done!',
+            data: message.data,
+            time: Date.now()
+          });
+        `;
+
+        let qoper8 = new QOper8({
+          logging: true,
+          handlersByMessageType: new Map([
+            ['myMessage', {text: 'handlerFn'}]
+          ]),
+          workerInactivityLimit: 2
         });
 
-
-- **unexpectedError**: A processing error of some kind has occurred in the Worker Thread.  *qoper8-wt*
-will shut it down and report the error to the console log, but before it does so, it will emit this
-event, allowing you to cleanly release any resources from the Worker Thread.
-
-
-  - arguments: none
-
-  - example:
-
-        this.on('unexpectedError', function() {
-          if (this.log) console.log('Worker Thread ' + this.threadId + ' has had a problem!');
+        let res = await qoper8.send({
+          type: 'myMessage',
+          data: {
+            hello: 'world'
+          }
         });
 
+        console.log('Results received from Worker Thread:');
+        console.log(JSON.stringify(res, null, 2));
 
-### Worker Thread Methods
 
-- **dontLog**: Allows you to define message *type* property values that are not to be logged to the
-console.  For example, you may not want to see sensitive values such as passwords appear in the
-console log.  Simply add the message types that handle such sensitive values to this array.
+So you now have everything defined in a single Node.js script file.
 
-  - arguments:
 
-    - types: an array of message type values to be omitted from the console log
 
-  - example:
+## Additional *QOper8-wt* APIs
 
-        this.on('start', function() {
-          this.dontLog(['login', 'getUserData']);
-        });
+- As an alternative to the *send()* API, you can use the asynchronous *message()* API which allows you to define a callback function for handling the response returned by the Worker Thread that processed the message, eg:
 
+      qoper8.message(messageObj, function(responseObj) {
 
-### Worker Thread Properties
+        // handle the returned response object
 
-- **this.threadId**: The Thread Id for the Worker Thread
+      });
 
+This can be convenient and also the most efficient way to handle "fire and forget" messages that you want to send to a Worker Thread, but where you don't need to handle the response, eg:
 
+      qoper8.message(messageObj);
 
+- You can use the *log()* API to display date/time-stamped console.log messages.  To use this API, you must configure *QOper8-wt* with *logging: true* as one of its configuration option properties.  For example:
 
-## Benchmark Test
+      qoper8.log('This is a message');
 
-Included in the */examples folder is a script named *benchmark.js*.
+      // 1656004435581: This is a message
 
-This will generate a specified number of messages and add them to the queue in timed batches. 
-The messages are round-tripped to your worker process(es).
+  This can be helpful to verify the correct chronological sequence of events within the console log when debugging.
 
-The benchmark will measure how long it takes to process the complete set of messages and 
-will provide statistics such as the rate per second and the number of messages handled by each 
-Worker Thread.
+- qoper8.getStats(): Returns an object that provides you with a range of information and statistics about activity within the main QOper8-wt process and the Worker Threads.  You can invoke this API at any time.
 
-Rather than creating an initial massive queue of messages, the benchmark allows you to 
-generate small batches of messages that are added to the queue, with a delay between each batch.
-By careful tuning of the benchmark's arguments, you can create a steady state where messages
-are consumed by *qoper8-wt* as fast as they are added to the queue.
+- qoper8.getQueueLength(): Returns the current queue length.  Under most circumstances this should usually return zero.
 
-If you add batches of messages too quickly to the queue, you'll see the queue size
-increasing.  If you add them too slowly, you'll see messages telling you that the queue has
-been exhausted.
+- qoper8.stop(): Controllably shuts down all Worker Threads in the pool and prevents any further messages being added to the queue.  Any messages currently in the queue will remain there and will not be processed.
 
-You should use trial and error to establish a steady state where you see only an initial number
-of messages telling you that the queue is growing, followed by silence until the benchmark test
-has completed.
+- qoper8.start(): Can be used after a *stop()* to resume *QOper8-wt*'s ability to add messages to its queue and to process them.  *QOper8-wt* will automatically start up new Worker Thread(s).
 
 
-To run the benchmark:
+### Properties:
 
-        node node_modules/qoper8-wt/examples/benchmark [[worker thread pool size] [total no of messages] [no of messages/batch] [pause between each batch (ms)]
+- qoper8.name: returns **QOper8-wt**
 
+- qoper8.build: returns the build number, eg 5.0
 
-The default values, if not specified as command line parameters are:
-- Worker Thread pool size: 1
-- no of messages: 100,000
-- messages per batch: 500
-- pause between each batch: 51ms
+- qoper8.buildDate: returns the date the build was created
 
-If you find that the queue just keeps building up throughout a run, increase the 
-pause between batches. This will allow *qoper8-wt* to consume more of the queued 
-messages before a next batch is added.
+- qoper8.logging: read/write property, defaults to *false*.  Set it to *true* to see a trace of *QOper8-wt* foreground and Worker Thread activity in the JavaScript console.  Set to false for production systems to avoid any overheads.
 
-Conversely, if you see lots of reports of the queue being exhausted during a run, 
-decrease the pause between batches, until you are topping up the queue as fast as it is 
-being consumed.
+## Events
 
-Try different Worker Thread Pool sizes to discover how this affects the speed with
-which messages are consumed by *qoper8-wt*.
+The *QOper8-wt* module allows you to emit and handle your own specific custom events
 
-Here's some examples of how to run the benchmark:
 
+- Define an event handler using the *on()* method, eg:
 
-        node node_modules/qoper8-wt/examples/benchmark
+      qoper8.on('myEvent', function(dataObj) {
+        // handle the 'myEvent' event
+      });
 
-This uses:
-- Worker Thread pool size: 1
-- no of messages: 100,000
-- messages per batch: 500
-- pause between each batch: 51ms
+  The first argument can be any string you like.
 
+- Emit an event using the *emit()* method, eg:
 
-        node node_modules/qoper8-wt/examples/benchmark 2
+      qoper8.emit('myEvent', {foo: bar}):
 
-This uses
+  The second argument can be either a string or object, and is passed to the callback of the associated *on()* method.
 
-- Worker Thread pool size: 2
-- no of messages: 100,000
-- messages per batch: 500
-- pause between each batch: 51ms
 
+- Remove an event handler using the *off()* method, eg:
 
-        node node_modules/qoper8-wt/examples/benchmark 1 10000
+      qoper8.off('myEvent');
 
+Note that repeated calls to the *on()* method with the same event name will be ignored if a handler has already been defined.  To change/replace an event handler, first delete it using the *off()* method, then redefine it using the *on()* method.
 
-This uses:
-- Worker Thread pool size: 1
-- no of messages: 10,000
-- messages per batch: 500
-- pause between each batch: 51ms
 
+*QOper8-wt* itself emits a number of events that you can handle, both in the main process and within the Worker Thread(s).
 
-        node node_modules/qoper8-wt/examples/benchmark 2 5000 100
+The Main process *QOper8-wt* event names are:
 
+- *workerStarted*: emitted whenever a Worker Thread starts
+- *addedToQueue*: emitted whenever a new message is added to the queue
+- *sentToWorker*: emitted whenever a message is removed from the queue and sent to a Worker Thread
+- *replyReceived*: emitted whenever a response message from a Worker Thread is received by the main browser process 
+- *stop*: emitted whenever *QOper8-wt* is stopped using the *stop()* API
+- *start*: emitted whenever *QOper8-wt* is re-started using the *start()* API
 
-This uses:
-- Worker Thread pool size: 2
-- no of messages: 5,000
-- messages per batch: 100
-- pause between each batch: 51ms
+You can provide your own custom handlers for these events by using the *on()* method within your main module.
 
 
-        node node_modules/qoper8-wt/examples/benchmark 6 100000 1000 102
+The Worker Thread event names are:
 
+- *started*: emitted when the Worker Thread has started and been successfully initialised by the main *QOper8-wt* process
+- *handler_imported*: emitted on successful import of a message type handler module
+- *received*: emitted whenever the Worker Thread receives a message from the main *QOper8-wt* process
+- *finished*: emitted whenever the *finished()* method has been invoked
+- *shutdown_signal_sent*: emitted whenever the Worker Thread sends a message to the main *QOper8-wt* process, signalling that it is to be shut down (as a result of inactivity)
+- *error*: emitted whenever errors occur during processing within the Worker Thread
 
-This uses:
-- Worker Thread pool size: 6
-- no of messages: 1,000,000
-- messages per batch: 1000
-- pause between each batch: 102ms
+You can provide your own custom handlers for these events by using the *this.on()* method within your message type handler module(s).  Note, as explained earlier, that repeated use of *this.on()* for the same event name will be ignored.
 
 
+## Handling Intermediate Messages
 
-Here are maximum steady-state examples using a Raspberry Pi 4 (4Mb RAM):
+In most situations, you'll use the *finished()* API within your Message Handler scripts in order to return your messages to the main *QOper8-wt* process.  
 
-### Worker Thread Pool Size: 1
+Sometimes, however, you may need to send additional, intermediate messages from the Worker Thread before you finally signal completion of your handler processing with the *finished()* method.
 
-        node node_modules/qoper8-wt/examples/benchmark 1 100000 500 52
+In order to send such intermediate messages, *QOper8-wt* provides you with access to the Worker Thread's *parentPort.postMessage()* API, via the *this* context within your Handler script, eg:
 
-Throughput: 9,472 messages/sec
+- in your message type handler:
 
+      this.postMessage({
+        type: 'custom',
+        data: {
+          foo: 'bar'
+        }
+      });
 
+The trick to making use of such intermediate messages within the main *QOper8-wt* process is to set up a custom event handler that makes use of *QOper8-wt*'s *replyReceived* event.  Your intermediate message will be accessible as *res.reply*, eg
 
-### Worker Thread Pool Size: 2
+- in your main module
 
-        node node_modules/qoper8-wt/examples/benchmark 2 100000 500 26
+      qoper8.on('replyReceived', function(res) {
+        if (res.reply.type === 'custom') {
+          // do something with res.reply.data
+        }
+      });
 
-Throughput: 18,698 messages/sec
-
-
-
-### Worker Thread Pool Size: 3
-
-        node node_modules/qoper8-wt/examples/benchmark 3 100000 500 25
-
-Throughput: 19,113 messages/sec
-
- 
-### Worker Thread Pool Size: 4
-
-        node node_modules/qoper8-wt/examples/benchmark 4 1000000 1000 46
-
-Throughput: 20,681 messages/sec
-
-
-### Worker Thread Pool Size: 5
-
-        node node_modules/qoper8-wt/examples/benchmark 5 1000000 2000 92
-
-Throughput: 20,802 messages/sec
-
-
-### Worker Thread Pool Size: 6
-
-        node node_modules/qoper8-wt/examples/benchmark 6 1000000 2000 91
-
-Throughput: 20,919 messages/sec
-
-
-### Worker Thread Pool Size: 7
-
-        node node_modules/qoper8-wt/examples/benchmark 7 1000000 2000 90
-
-Throughput: 21,103 messages/sec
-
-
-### Worker Thread Pool Size: 8
-
-        node node_modules/qoper8-wt/examples/benchmark 8 1000000 2000 89
-
-Throughput: 21,218 messages/sec
-
-
-### Worker Thread Pool Size: 9
-
-        node node_modules/qoper8-wt/examples/benchmark 9 1000000 2000 90
-
-Throughput: 21,085 messages/sec
-
-
-### Worker Thread Pool Size: 10
-
-        node node_modules/qoper8-wt/examples/benchmark 10 1000000 2000 91
-
-Throughput: 20,694 messages/sec
-
-
-So you can see that on a Raspberry Pi 4 (which has 4 CPU cores), maximum throughput
-was achieved with 8 Worker Threads.
+**Note**: that you must **ALWAYS** use the *finished()* API within your message handler scripts to signal that you have finished using the Worker Thread, even if you use intermediate messages.  Failure to invoke the *finished()* API will mean that the Worker Thread is not released back into the *QOper8-wt* available pool, so it cannot be used to handle any further messages in the queue.
 
 
 ## License
 
- Copyright (c) 2019 M/Gateway Developments Ltd,                           
+ Copyright (c) 2022 M/Gateway Developments Ltd,                           
  Redhill, Surrey UK.                                                      
  All rights reserved.                                                     
                                                                            
@@ -1354,3 +800,5 @@ was achieved with 8 Worker Threads.
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
   See the License for the specific language governing permissions and      
    limitations under the License.      
+
+
