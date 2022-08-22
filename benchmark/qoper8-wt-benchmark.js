@@ -6,24 +6,28 @@ let benchmark = function(options) {
   let blockLength = +options.blockLength || 100;
   let delay = +options.delay || 200;
   let maxQLength = +options.maxQLength || 20000;
+  let QBackup = options.QBackup;
+  let logging = options.logging || false;
 
   let fnText = `
+    let worker = this;
     finished({
-      messageNo: msg.messageNo,
-      workerId: this.id,
-      count: this.getMessageCount(),
+      messageNo: message.messageNo,
+      workerId: worker.id,
+      count: worker.getMessageCount(),
     });
   `;
 
   let q = new QOper8({
-    //logging: true,
+    logging: logging,
     maxQLength: maxQLength,
     workerInactivityLimit: 2,
     handlersByMessageType: new Map([
       ['benchmark', {text: fnText}]
     ]),
     poolSize: poolSize,
-    exitOnStop: true
+    exitOnStop: true,
+    QBackup: QBackup
   });
 
   let msgNo = 0;
@@ -73,7 +77,7 @@ let benchmark = function(options) {
         let msg = {
           type: 'benchmark',
           messageNo: msgNo,
-          time: Date.now()
+          //time: Date.now()
         };
         q.message(msg, function(res, workerId) {
           responseNo++;

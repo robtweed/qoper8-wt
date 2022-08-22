@@ -16,6 +16,8 @@ Node.js applications.
 *QOper8-wt* allows you to define a pool of Worker Threads, to which messages that you create are automatically
 dispatched and handled.  *QOper8-wt* manages the Worker Thread pool for you automatically, bringing them into play and closing them down based on demand.  *QOper8-wt* allows you to determine how long a Worker Thread process will persist.
 
+*Qoper8-wt* makes use of the standard Node.js Worker Thread APIs, and uses its standard *postMessage()* API for communication between the main QOper8 process and each Worker Thread.  No other networking APIs or technologies are involved, and no external network traffic is conducted within QOper8's logic.
+
 *Note*: The *QOper8-wt* module closely follows the pattern and APIs of the browser-based 
 [*QOper8-ww*](https://github.com/robtweed/QOper8) module for WebWorker pool management. 
 
@@ -63,7 +65,11 @@ You start and configure *QOper8-wt* by creating an instance of the *QOper8* clas
 
 - *logging*: if set to *true*, *QOper8-wt* will generate console.log messages for each of its critical processing steps within both the main process and every Worker Thread process.  This is useful for debugging during development.  If not specified, it is set to *false*.
 
--*exitOnStop*: if set to *true* and if you invoke the *stop()* API (see later), QOper8-wt will invoke a *process.exit()* command.  By default, QOper8 will remain running even when stopped (although it will deactivate its queue when stopped).
+- *exitOnStop*: if set to *true* and if you invoke the *stop()* API (see later), QOper8-wt will invoke a *process.exit()* command.  By default, QOper8 will remain running even when stopped (although it will deactivate its queue when stopped).
+
+- *handlerTimeout*: Optional property allowing you to specify the length of time (in milliseconds) that the QOper8 main process will wait for a response from a Worker Thread.  If a *handlerTimeout* is specified and it is exceeded (eg due to a handler method going wrong), then an error is returned and the Worker Thread is shut down.  See later for details.
+
+- *QBackup*: optional object that includes two functions for maintaining a backup queue (eg in a Redis key/value store), for critical systems where the resilience of the queue needs to be assured in the event of the main Node.js process crashing.  See later for details.
 
 
 You can optionally modify the parameters used by *QOper8-wt* for monitoring and shutting down inactive Worker Thread processes, by using the following *options* properties:
@@ -178,11 +184,26 @@ So, as you can see, everything related to the Worker Thread processes and the me
 
 The structure and contents of the response object are up to you.  
 
-The *finished()* method is provided for you by the *QOper8-wt* Worker module.  It:
+The *this* context within your handler method has the following properties and methods that you may find useful:
 
-- returns the response object (specified as its argument) to the main *QOper8-wt* process
-- instructs the main *QOper8-wt* process that processing has completed in the Worker Thread, and, as a result, the Worker Thread is flagged as *available* for handling any new incoming/queued messages
-- finally tells *QOper8-wt* to process the first message in its queue (unless it's empty)
+- *id*: the Worker Thread Id, as allocated by the QOper8 main process
+- *postMessage()*: the Worker Thread's postMessage() method, allowing you to send intermediate messages back to the main QOper8 process (see later for details)
+- *on()*: allows you to handle events within your handler
+- *off()*: deletes an event handler
+- *emit()*: generates a custom event within your handler
+- *log()*: if logging is enabled in QOper8, then a time-stamped *console.log()* message can be created using this method
+
+The *on()*, *off()*, *emit()* and *log()* methods are [described later in this document](#events).
+
+
+The second argument of your handler method - the *finished()* method - is provided for you by the *QOper8-wt* Worker module.  It is used to:
+
+- return the response object (specified as its argument) to the main *QOper8-wt* process
+- instruct the main *QOper8-wt* process that processing has completed in the Worker Thread, and, as a result, the Worker Thread is flagged as *available* for handling any new incoming/queued messages
+- tell *QOper8-wt* to process the first message in its queue (unless it's empty)
+
+
+Your handler **MUST** always invoke the *finished()* when completed, even if you have no response to return;  Failure to invoke the *finished()* method will leave the Worker Thread unavailable for use for handling other queued messages (unless a *handlerTimeout* was defined when instantiating QOper8, in which case the Worker Thread will be terminated once this is exceeded).
 
 
 For example:
@@ -199,6 +220,33 @@ For example:
 
       };
       export {handler};
+
+If your handler method includes asynchronous logic, ensure that the *finished()* method is invoked only when your asynchronous logic has completed, otherwise the Worker Thread will be relased back to the available pool prematurely, eg:
+
+      let handler = function(obj, finished) {
+
+        // demonstration of how to handle asynchronous logic within your handler
+   
+        setTimeout(function() {
+
+          finished({
+            processing: 'Message processing done!',
+            data: obj.data,
+            time: Date.now()
+          });
+        }, 3000);
+
+      };
+      export {handler};
+       
+
+## How Many Message Type Handlers Can You Use?
+
+As many as you like!  Each Worker Thread will automatically and dynamically load and cache the handler methods you've specified as it receives incoming requests.  Each Worker Thread can therefore handle as many different message types as you wish.  
+
+You don't need separate Worker Threads for handling different message types, and nor do you need multiple instances of QOper8 to handle different types of messages and traffic.
+
+Simply write your message handlers, tell QOper8 where to load them from and leave QOper8 to use them!
 
 
 ## Simple Example
@@ -352,9 +400,153 @@ It's entirely up to you.  Each Worker Thread in your pool will be able to invoke
 - If you use just a single Worker Thread, your queued messages will be handled individually, one at a time, in strict chronological sequence.  This can be advantageous for certain kinds of activity where you need strict control over the serialisation of activities.  The downside is that the overall throughput will be typically less than if you had a larger Worker Thread pool.
 
 
+## *QOper8-wt* Fault Resilience
+
+QOper8 is designed to be robust and allow you to control and handle unforseen events.
+
+### Handling Errors in Worker Threads
+
+The most likely error you'll experience is where a Worker Thread Message Handler method has crashed due to some fault within its logic.  If this happens, *QOper8-wt* will:
+
+- return an error object to your awaiting *send()* Promise. This object also includes the original queued request object, allowing you to re-queue it and re-handle it if this is a sensible and/or feasible option for you.  For example, if you sent a request:
+
+
+      let res = await qoper8.send({
+        type: 'test',
+        hello: 'world'
+      });
+
+
+  If the message hander for a message of type *test* crashed, then *res* would be returned as:
+
+      {
+        "error": "Error running Handler Method for type test",
+        "caughtError": "{\"stack\":\"ReferenceError: y is not defined\\n...etc}",
+        "originalMessage": {
+          "type": "test",
+          "hello": "world"
+        },
+        "workerId": 0,
+        "qoper8": {
+          "finished": true
+        }
+      }
+
+  The *caughtError* is a stringified copy of the error caught by QOper8's *try..catch* around the handler that failed.  This should provide you with the information needed to debug the issue.
+
+  The original request object is returned to you under the *originalMessage* property.  It is up to you to decide what, if anything you want to do with it.
+
+  The *workerId* and *qoper8* properties are primarily for internal use within QOper8.
+
+
+- QOper8 will terminate the Worker Thread in which the error occurred and remove it from QOper8's available pool.  This is to prevent any unwanted side-effects from any delayed asynchronous logic that may be running within the Worker Thread despite the error that occurred.  
+
+  Note that QOper8 will always automatically start new Worker Threads if it needs to, and this, coupled with the fact that a QOper8 Worker Thread only ever handles a single message at a time, means that shutting down Worker Threads is a safe thing for QOper8 to do.
+
+### Handling a Handler that Never Completes
+
+By default, if you QOper8 Worker Thread handler method failed to complete (eg due to an infinite loop, or because it was hanging awaiting a resource that was unavailable), then that Worker Thread will remain unavailable to QOper8.  This will reduce throughtput, and if the same situation occurs in other Worker Threads, you could end up with a stalled system with no available Worker Threads.
+
+To handle such situations, you should specify a *handlerTimeout* when instantiating QOper8.  The *handlerTimeout* is specified in milliseconds, eg the following would instruct QOper8 to force a Worker Thread timeout if a handler took longer than a minute to return its results:
+
+      let qoper8 = new QOper8({
+        handlersByMessageType: new Map([
+          ['test', {module: './test.mjs'}]
+        ]),
+        poolSize: 2,
+        handlerTimeout: 60000
+      });
+
+
+If a handler method exceeds this timeout, QOper8 will:
+
+- return an error response to the awaiting *send()* Promise.  The error response object includes the original request object.  It is for you to determine what to do with the original request object, for example you may decide to re-queue it.
+
+  For example, if you sent a request:
+
+      let res = await qoper8.send({
+        type: 'test',
+        hello: 'world'
+      });
+
+and the *test* Message Handler method failed to respond within a minute, then the value of *res* that was returned would be: 
+
+
+      {
+        error: 'Worker Thread handler timeout exceeded',
+        originalRequest: {
+          type: 'test',
+          hello: 'world'
+        }
+      };
+
+- terminate the Worker Thread, effectively stopping any processing that was taking place in the Worker Thread.
+
+  Note that QOper8 will always automatically start new Worker Threads if it needs to, and this, coupled with the fact that a QOper8 Worker Thread only ever handles a single message at a time, means that shutting down Worker Threads is a safe thing for QOper8 to do.
+
+
+### Handling a Crash in the Main Node.js Process
+
+If the main Node.js process experiences an unforeseen crash, you will not only lose the currently executing Worker Threads, but you'll also lose QOper8's queue since, for performance reasons, it is an in-memory array structure.
+
+Under most circumstances, the QOper8 queue should be empty, but in a busy system this may not be the case, and if you are running a safety-critical system, the resilience of the queue may be an important/vital factor, in which case you need to be able to restore any requests that may have been in the queue and also any requests that had not been handled to completion within Worker Threads.
+
+#### Maintaining a Backup of the Queue
+
+QOper8 does not, itself, provide a resilient queue, but it does provide hooks via which you can optionally provide your own resilience, eg allowing you to maintain an active copy of the queue in the Redis database.  You do this by specifying a property named *QBackup* when instantiating QOper8.  This must be an object containing two functions named *add* and *delete*, eg:
+
+
+      let QBackup = {
+        add: function(id, requestObject) {
+          // your code for saving the requestObject using id as the unique key
+        },
+        delete: function(id) {
+          // your code for deleting the record identified by id as the key
+        }
+      };
+
+      let qoper8 = new QOper8({
+        handlersByMessageType: new Map([
+          ['test', {module: './test.mjs'}]
+        ]),
+        poolSize: 2,
+        handlerTimeout: 60000,
+        QBackup: QBackup
+      });
+
+
+If QBackup methods are defined:
+
+- whenever a message is added to the QOper8 queue (via either the *send()* or *message()* APIs), the *add()* method will be fired.  This allows you to add a copy of the queued request using a unique request Id that QOper8 provides you.
+
+- whenever a response is received by QOper8 from a Worker Thread, provided this was as a result of the *finished()* method within the Worker Thread, the *delete()* method is fired, passing you the unique Id of the message that has now completed. This allows you to delete the now-handled message from the copy of the queue.
+
+#### Recovery
+
+If the main Node.js process experiences an unforeseen crash, it is your responsibility to recreate the queue from your backup storage.  To do this, restart QOper8 and then simply re-queue the messages from your database copy, using, eg, the following pseudo-code:
+
+      for (const requestObject in yourDatabase) {
+
+        // use QOper8's message API to requeue the request object:
+        qoper8.message(requestObject);
+
+        delete requestObject from yourDatabase;
+      }
+
+QOper8 will immediately begin processing requests as they are added to the queue, and will begin firing your corresponding QBackup *add()* and *delete() methods as the requests are queued and completed, so you should probably shouldn't rebuild the QOper8 queue directly from your active backup store to prevent any unwanted synchronisation issues within your backup store.
+
+Note that QOper8's approach to resilience means that its throughput is not constrained by the performance of a separate database-based queue.  You should, however, ensure that your storage logic within your *QBackup* *add()* and *delete()* APIs is asynchronous, to avoid blocking QOper8's main process.
+
+Note also that it is your responsibility to ensure the integrity of your backup queue.  QOper8 can only ensure that you are provided with the correct signals at the appropriate times to allow you to maintain an accurate representation of the currently active queue and uncompleted requests.
+
+Note also that, under the terms of QOper8's Apache2 license, you use QOper8 at your own risk and no warranties are provided.
+
+
 ## Benchmarking *QOper8-wt* Throughput
 
-To get an idea of the throughput performance of *QOper8-wt* on different browsers, you can use the benchmarking test script that is included in the [*/benchmark*](./benchmark) folder of this repository.
+The performance of *QOper8-wt* will depend on many factors, in particular the size of your request and response objects, and also the amount and complexity of the processing logic within your Worker Thread Handler methods.  It will also be impacted if your Handler logic includes access to external resources (eg via REST or other external networking APIs).
+
+However, to get an idea of likely best-case throughput performance of *QOper8-wt* on your system, you can use the benchmarking test script that is included in the [*/benchmark*](./benchmark) folder of this repository.
 
 To run it, create a Node.js script file (eg *benchmark.mjs*), following this pattern:
 
@@ -573,10 +765,36 @@ Tweaking the delay time a little more, we should be able to find a better balanc
 and you can now see that we're hitting the optimum throughput for this system, which is nearly 6200 messages/sec across 3 Worker Threads.  You can see the distribution of messages across the Worker Threads which, as you can see, isn't necessarily  an even distribution.
 
 
+**Note**: You can also use the benchmark tool to stress-test any queue backup logic that you may be providing.  You can also measure what, if any, performance impact your backup strategy has on best-case throughput.
+
+Simply add the *QBackup* APIs to the benchmark's constructor, eg:
+
+        import {benchmark} from 'qoper8-wt/benchmark';
+
+        let QBackup = {
+          add: function(id, requestObject) {
+            // your code for saving the requestObject using id as the unique key
+          },
+          delete: function(id) {
+            // your code for deleting the record identified by id as the key
+          }
+        };
+
+        benchmark({
+          poolSize: 3,
+          maxMessages: 100000,
+          blockLength:1400,
+          delay: 135,
+          QBackup: QBackup
+        });
+
+
+Note that at the end of each benchmark run, your backup queue should be empty!
+
 
 ## Optionally Packaging Your Message Handler Code
 
-As you'll have seen above, the default way in which *QOper8-wt* dynamically loads each of your Message Handler script files is via a corresponding URL that you define in the *QOper8-wt* constructor's *handlersByMessageType* property.
+As you'll have seen above, the default way in which *QOper8-wt* dynamically loads each of your Message Handler script files is via a corresponding file path that you define in the *QOper8-wt* constructor's *handlersByMessageType* property.
 
 When a Message Handler Script File is needed by *QOper8-wt*, it dynamically imports it as a module.  This is the standard way to load modules into Worker Threads, but of course, it means that each of your Message Handler Script Files need to reside in a file that is fetched via the file path you've specified.
 
