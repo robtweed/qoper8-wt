@@ -23,7 +23,7 @@
  |  limitations under the License.                                           |
  ----------------------------------------------------------------------------
 
-22 August 2022
+23 August 2022
 
  */
 
@@ -60,7 +60,7 @@ let QWorker = class {
           shutdown: true
         }
       };
-      clearInterval(QOper8Worker.timer);
+      if (timer) clearInterval(timer);
       parentPort.postMessage(obj);
       q.emit('shutdown_signal_sent');
     }
@@ -275,15 +275,17 @@ let QWorker = class {
         catch(err) {
           error = 'Error running Handler Method for type ' + obj.type;
           q.log(error);
-          q.log(err);
+          q.log(JSON.stringify(err, Object.getOwnPropertyNames(err)));
           q.emit('error', {
             error: error,
             caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err))
           });
           // shutdown the Worker Thread to prevent any unwanted side-effects
+          if (timer) clearInterval(timer);
           return finished({
             error: error,
             caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err)),
+            shutdown: true,
             originalMessage: dispObj,
             workerId: id
           });
@@ -343,8 +345,8 @@ class QOper8 {
     if (obj.workerInactivityLimit) obj.workerInactivityLimit = obj.workerInactivityLimit * 60000;
 
     this.name = 'QOper8-wt';
-    this.build = '5.0';
-    this.buildDate = '16 August 2022';
+    this.build = '5.2';
+    this.buildDate = '23 August 2022';
     this.logging = obj.logging || false;
     let poolSize = +obj.poolSize || 1;
     let maxPoolSize = obj.maxPoolSize || 32;
@@ -474,10 +476,14 @@ class QOper8 {
             };
             if (callback) callback(res, id);
             pendingRequests.delete(id);
-            handleTimers.delete(id);
-            setTimeout(function() {
-              worker.terminate();
-            }, 1000);
+            handlerTimers.delete(id);
+            // send shutdown signal to child process to ensure it
+            // stops its timer
+
+            sendMessage({
+              type: 'qoper8_terminate'
+            }, worker);
+
           }
 
         },handlerTimeout);
@@ -498,10 +504,16 @@ class QOper8 {
     }
 
     function addToQBackup(requestObj) {
+      let messageNo = requestObj.qoper8.messageNo;
+      let req = {...requestObj};
+      delete req.qoper8;
+      q.emit('QBackupAdd', {
+        id: messageNo,
+        requestObject: req
+      });
       if (QBackup && typeof QBackup.add === 'function') {
-        let messageNo = requestObj.qoper8.messageNo;
         try {
-          QBackup.add(messageNo, requestObj);
+          QBackup.add(messageNo, req);
         }
         catch(err) {
           q.log("Error executing QBackup add method");
@@ -511,10 +523,11 @@ class QOper8 {
     }
 
     function removeFromQBackup(workerId) {
-      if (QBackup && typeof QBackup.delete === 'function') {
+      if (pendingRequests.has(workerId)) {
         let pendingRecord = pendingRequests.get(workerId);
-        if (pendingRecord) {
-          let originalMessageNo = pendingRecord.messageNo;
+        let originalMessageNo = pendingRecord.messageNo;
+        q.emit('QBackupDelete', originalMessageNo);
+        if (QBackup && typeof QBackup.delete === 'function') {
           try {
             QBackup.delete(originalMessageNo);
           }
@@ -566,7 +579,7 @@ class QOper8 {
             // If an error has been returned, stop the Worker Thread to
             //  prevent unwanted side effects
 
-            if (res.error) {
+            if (res.error && res.shutdown) {
               workers.delete(id);
               isAvailable.delete(id);
               pendingRequests.delete(id);
