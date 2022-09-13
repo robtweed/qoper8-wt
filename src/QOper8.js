@@ -23,7 +23,7 @@
  |  limitations under the License.                                           |
  ----------------------------------------------------------------------------
 
-23 August 2022
+13 September 2022
 
  */
 
@@ -32,6 +32,10 @@
 let workerCode = `
 
 const { parentPort, threadId } = require("worker_threads");
+
+process.on( 'SIGINT', function() {
+  console.log('Worker Thread detected SIGINT (Ctrl-C) - ignored');
+});
 
 let QWorker = class {
   constructor() {
@@ -55,6 +59,7 @@ let QWorker = class {
     let shutdown = function() {
       // signal to master process that I'm to be shut down
       q.log('Worker ' + id + ' sending request to shut down');
+      q.emit('stop');
       let obj = {
         qoper8: {
           shutdown: true
@@ -159,7 +164,49 @@ let QWorker = class {
             originalMessage: obj
           });
         }
+        if (obj.qoper8.onStartupModule) {
+          let mod;
+          try {
+            let {onStartupModule} = await import(obj.qoper8.onStartupModule);
+            mod = onStartupModule;
+          }
+          catch(err) {
+            error = 'Unable to load onStartup customisation module ' + obj.qoper8.onStartupModule;
+            q.log(error);
+            q.log(JSON.stringify(err, Object.getOwnPropertyNames(err)));
+            q.emit('error', {
+              error: error,
+              caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err))
+            });
+            return finished({
+              error: error,
+              caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err)),
+              originalMessage: obj,
+              workerId: id
+            });
+          }
 
+          // onStartup customisation module loaded: now invoke it
+
+          try {
+            mod.call(q, obj.qoper8.onStartupArguments);
+          }
+          catch(err) {
+            error = 'Error running onStartup customisation module ' + obj.qoper8.onStartupModule;
+            q.log(error);
+            q.log(JSON.stringify(err, Object.getOwnPropertyNames(err)));
+            q.emit('error', {
+              error: error,
+              caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err))
+            });
+            return finished({
+              error: error,
+              caughtError: JSON.stringify(err, Object.getOwnPropertyNames(err)),
+              originalMessage: obj,
+              workerId: id
+            });
+          }
+        }
         id = obj.qoper8.id;
         uuid = obj.qoper8.uuid;
         if (obj.qoper8.workerInactivityCheckInterval) delay = obj.qoper8.workerInactivityCheckInterval; 
@@ -345,8 +392,8 @@ class QOper8 {
     if (obj.workerInactivityLimit) obj.workerInactivityLimit = obj.workerInactivityLimit * 60000;
 
     this.name = 'QOper8-wt';
-    this.build = '5.2';
-    this.buildDate = '23 August 2022';
+    this.build = '5.4';
+    this.buildDate = '13 September 2022';
     this.logging = obj.logging || false;
     let poolSize = +obj.poolSize || 1;
     let maxPoolSize = obj.maxPoolSize || 32;
@@ -356,6 +403,9 @@ class QOper8 {
 
     let handlerTimeout = obj.handlerTimeout || false;
     let handlerTimers = new Map();
+    let onStartup = obj.onStartup || {};
+    let onStartupModule = onStartup.module;
+    let onStartupArguments = onStartup.arguments;
 
     // QBackup, if present, must be an object
     //  with two functions: add and remove
@@ -375,6 +425,15 @@ class QOper8 {
     this.setPoolSize = function(size) {
       if (+size > 0 && +size < (maxPoolSize + 1)) {
         poolSize = +size;
+      }
+    }
+
+    this.setOnStartupModule = function(obj) {
+      // should be an object:  {module: '/path/to/module', arguments: {key1: value1, ...etc} }
+      if (!onStartupModule) {
+        obj = obj || {};
+        onStartupModule = obj.module;
+        onStartupArguments = obj.arguments;
       }
     }
 
@@ -646,7 +705,7 @@ class QOper8 {
           }
           pendingRequests.delete(id);
         }
-        processQueue();
+        if (!stopped) processQueue();
       });
 
       worker.id = nextWorkerId++;
@@ -657,7 +716,9 @@ class QOper8 {
           handlersByMessageType: q.handlersByMessageType,
           workerInactivityCheckInterval: inactivityCheckInterval,
           workerInactivityLimit: inactivityLimit,
-          logging: q.logging
+          logging: q.logging,
+          onStartupModule: onStartupModule,
+          onStartupArguments: onStartupArguments
         }
       };
       sendMessage(msg, worker);
