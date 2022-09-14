@@ -400,16 +400,18 @@ It's entirely up to you.  Each Worker Thread in your pool will be able to invoke
 - If you use just a single Worker Thread, your queued messages will be handled individually, one at a time, in strict chronological sequence.  This can be advantageous for certain kinds of activity where you need strict control over the serialisation of activities.  The downside is that the overall throughput will be typically less than if you had a larger Worker Thread pool.
 
 
-## Optional Worker Thread Initialisation
+## Optional Worker Thread Initialisation/Customisation
 
 *Qoper8-wt* initialises Worker Threads whenever it starts them up, but only to the extent needed by *QOper8-wt* itself.
 
 Whenever a new *QOper8-wt* Worker Thread starts up, you may want/need to add your own custom initialisation logic, eg:
 
 - connecting the Worker Thread to an external resource such as a database;
-- augmenting the *QOper8-wt* Worker Thread's *this* context (which is then accessible to your message type handlers).  For example, adding methods etc to allow authorised access to an external resource such as a database.
+- augmenting the *QOper8-wt* Worker Thread's *this* context (which is then accessible to your Message Type Handlers).  For example, adding methods etc to allow authorised access to an external resource such as a database.
 
-*QOper8-wt* provides two ways in which you can do this:
+**NOTE**: Although your Message Type Handlers have access to the *QOper8-wt this* context, for security reasons, they cannot make any changes to *this* that will persist between Handler invocations.  
+
+*QOper8-wt* provides two ways in which you can customise the Worker Threads:
 
 - via a *QOper8-wt* property in the *options* object used when instantiating *QOper8-wt*;
 - via a method provided by *QOper8-wt* after it has been instantiated
