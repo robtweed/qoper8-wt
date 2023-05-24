@@ -1,7 +1,7 @@
 # QOper8-wt: Queue-based Node.js Worker Thread Pool Manager
  
 Rob Tweed <rtweed@mgateway.com>  
-16 August 2022, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)  
+24 May 2023, MGateway Ltd [https://www.mgateway.com](https://www.mgateway.com)  
 
 Twitter: @rtweed
 
@@ -1116,7 +1116,7 @@ The trick to making use of such intermediate messages within the main *QOper8-wt
 
 ## License
 
- Copyright (c) 2022 M/Gateway Developments Ltd,                           
+ Copyright (c) 2023 MGateway Ltd,                           
  Redhill, Surrey UK.                                                      
  All rights reserved.                                                     
                                                                            
