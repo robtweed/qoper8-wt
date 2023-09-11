@@ -1,4 +1,8 @@
 import {QOper8} from 'qoper8-wt';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let benchmark = function(options) {
   let poolSize = +options.poolSize || 1;
@@ -6,28 +10,17 @@ let benchmark = function(options) {
   let blockLength = +options.blockLength || 100;
   let delay = +options.delay || 200;
   let maxQLength = +options.maxQLength || 20000;
-  let QBackup = options.QBackup;
   let logging = options.logging || false;
-
-  let fnText = `
-    let worker = this;
-    finished({
-      messageNo: message.messageNo,
-      workerId: worker.id,
-      count: worker.getMessageCount(),
-    });
-  `;
 
   let q = new QOper8({
     logging: logging,
     maxQLength: maxQLength,
     workerInactivityLimit: 2,
     handlersByMessageType: new Map([
-      ['benchmark', {text: fnText}]
+      ['benchmark', __dirname + '/benchmarkWorker.js']
     ]),
     poolSize: poolSize,
-    exitOnStop: true,
-    QBackup: QBackup
+    exitOnStop: true
   });
 
   let msgNo = 0;
@@ -69,11 +62,18 @@ let benchmark = function(options) {
       if (queueLength > maxQueueLength) {
         console.log('Block no: ' + batchNo + ' (' + msgNo + '): queue length increased to ' + queueLength);
         maxQueueLength = queueLength;
+        delay++;
+        console.log('delay increased to ' + delay);
       }
-      if (queueLength === 0) console.log('Block no: ' + batchNo + ' (' + msgNo + '): Queue exhausted');
+      if (queueLength === 0) {
+        console.log('Block no: ' + batchNo + ' (' + msgNo + '): Queue exhausted');
+        delay--;
+        console.log('delay reduced to ' + delay);
+      }
       // Now add another block
       for (let i = 0; i < blockLength; i++) {
         msgNo++;
+        if (msgNo > maxMessages) break;
         let msg = {
           type: 'benchmark',
           messageNo: msgNo,
