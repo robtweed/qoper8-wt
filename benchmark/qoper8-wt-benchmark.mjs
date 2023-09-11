@@ -17,7 +17,7 @@ let benchmark = function(options) {
     maxQLength: maxQLength,
     workerInactivityLimit: 2,
     handlersByMessageType: new Map([
-      ['benchmark', __dirname + '/benchmarkWorker.js']
+      ['benchmark', {module: __dirname + '/benchmarkWorker.mjs'}]
     ]),
     poolSize: poolSize,
     exitOnStop: true
