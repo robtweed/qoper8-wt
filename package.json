@@ -1,15 +1,14 @@
 {
   "name": "qoper8-wt",
-  "version": "5.4.3",
+  "version": "6.0.1",
   "config": {
-    "date": "24 May 2023"
+    "date": "10 Septembr 2023"
   },
   "description": "Worker Thread Pool Management Utility for Node.js",
-  "main": "./src/QOper8.js",
-  "type": "module",
+  "main": "./src/QOper8.mjs",
   "exports": {
-    ".": "./src/QOper8.js",
-    "./benchmark": "./benchmark/qoper8-wt-benchmark.js"
+    ".": "./src/QOper8.mjs",
+    "./benchmark": "./benchmark/qoper8-wt-benchmark.mjs"
   },
   "engines" : {
     "node" : ">=14.0.0"
