@@ -50,7 +50,7 @@ class QOper8 {
 
     this.name = 'QOper8-wt';
     this.build = '6.0';
-    this.buildDate = '12 September 2023';
+    this.buildDate = '28 September 2023';
     this.logging = obj.logging || false;
     let poolSize = +obj.poolSize || 1;
     let maxPoolSize = obj.maxPoolSize || 32;
@@ -301,6 +301,7 @@ class QOper8 {
               pendingRequests.delete(id);
               handlerTimers.delete(id)
               q.emit('worker' + id + 'Terminated');
+              q.emit('workerStopped', id);
               worker.terminate();
               if (!stopped) processQueue();
               return;
@@ -320,6 +321,7 @@ class QOper8 {
             pendingRequests.delete(id);
             handlerTimers.delete(id)
             q.emit('worker' + id + 'Terminated');
+            q.emit('workerStopped', id);
             worker.terminate();
           }
         }
@@ -358,6 +360,7 @@ class QOper8 {
               originalRequest: requestObj
             };
             q.emit('threadExit', requestObj);
+            q.emit('workerStopped', id);
             callback(res, id);
           }
           pendingRequests.delete(id);
